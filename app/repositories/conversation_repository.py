@@ -99,3 +99,23 @@ class ConversationRepository:
             .order_by(SearchSnapshot.sequence_no.desc())
         )
         return db.session.execute(stmt).scalars().first()
+
+    def set_active_snapshot(self, session_id: str, snapshot_id: int) -> ConversationSession:
+        """Set the active snapshot for a session with strict cross-session ownership verification."""
+        session = self.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session '{session_id}' not found.")
+
+        snapshot = db.session.get(SearchSnapshot, snapshot_id)
+        if snapshot is None:
+            raise ValueError(f"Snapshot with ID {snapshot_id} not found.")
+
+        if snapshot.session_id != session_id:
+            raise ValueError(
+                f"Cross-session snapshot assignment rejected: Snapshot {snapshot_id} belongs to "
+                f"session '{snapshot.session_id}', not '{session_id}'."
+            )
+
+        session.active_snapshot_id = snapshot.id
+        db.session.flush()
+        return session

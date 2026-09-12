@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Index, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, validates
 
 from app.extensions import db
 from app.models.base import JSON_VARIANT, TimestampMixin
@@ -64,6 +64,19 @@ class ConversationSession(TimestampMixin, db.Model):
         foreign_keys=[active_snapshot_id],
         post_update=True,
     )
+
+    @validates("active_snapshot")
+    def validate_active_snapshot(
+        self, key: str, snapshot: SearchSnapshot | None
+    ) -> SearchSnapshot | None:
+        """Enforce that active_snapshot strictly belongs to this conversation session."""
+        if snapshot is not None and self.session_id and snapshot.session_id != self.session_id:
+            raise ValueError(
+                f"Cross-session snapshot assignment rejected: Snapshot {snapshot.id} belongs to "
+                f"session '{snapshot.session_id}', not '{self.session_id}'."
+            )
+        return snapshot
+
     messages: Mapped[list[ChatMessage]] = relationship(
         "ChatMessage",
         back_populates="session",

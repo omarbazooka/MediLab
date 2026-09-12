@@ -6,6 +6,8 @@ import secrets
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from sqlalchemy.exc import IntegrityError
+
 from app.extensions import db
 from app.models.booking import Booking, BookingItem
 from app.models.home_visit import HomeVisit
@@ -56,10 +58,10 @@ class BookingService:
     def generate_booking_reference() -> str:
         """Generate a collision-safe, human-readable booking reference.
 
-        Example: MLB-20260912-7A3F9B
+        Example: MLB-20260912-7A3F9B1C
         """
         today_str = datetime.now(UTC).strftime("%Y%m%d")
-        random_suffix = secrets.token_hex(2).upper()
+        random_suffix = secrets.token_hex(4).upper()  # 8 hex characters
         return f"MLB-{today_str}-{random_suffix}"
 
     def create_booking(
@@ -177,35 +179,59 @@ class BookingService:
             # 7. Reserve slot capacity
             slot.reserved_count += 1
 
-            # 8. Create booking record
-            ref = self.generate_booking_reference()
-            booking = Booking(
-                booking_reference=ref,
-                customer_id=customer.id,
-                availability_slot_id=slot.id,
-                visit_type=clean_visit_type,
-                branch_id=slot.branch_id if clean_visit_type == "BRANCH" else None,
-                scheduled_date=slot.date,
-                scheduled_time=slot.time,
-                status="CONFIRMED",
-                idempotency_key=clean_idempotency_key,
-                notes=notes.strip() if notes else None,
-                items=booking_items,
-            )
-
-            # 9. Create 1-to-1 HomeVisit details if applicable
-            if clean_visit_type == "HOME":
-                booking.home_visit = HomeVisit(
-                    address=address.strip(),
-                    area=area.strip(),
-                    instructions=home_instructions.strip() if home_instructions else None,
-                    status="SCHEDULED",
+            # 8. Create booking record with limited reference collision retry
+            MAX_REF_ATTEMPTS = 3
+            booking = None
+            for attempt in range(MAX_REF_ATTEMPTS):
+                ref = self.generate_booking_reference()
+                booking = Booking(
+                    booking_reference=ref,
+                    customer_id=customer.id,
+                    availability_slot_id=slot.id,
+                    visit_type=clean_visit_type,
+                    branch_id=slot.branch_id if clean_visit_type == "BRANCH" else None,
+                    scheduled_date=slot.date,
+                    scheduled_time=slot.time,
+                    status="CONFIRMED",
+                    idempotency_key=clean_idempotency_key,
+                    notes=notes.strip() if notes else None,
+                    items=booking_items,
                 )
 
-            self.booking_repo.add(booking)
+                # 9. Create 1-to-1 HomeVisit details if applicable
+                if clean_visit_type == "HOME":
+                    booking.home_visit = HomeVisit(
+                        address=address.strip(),
+                        area=area.strip(),
+                        instructions=home_instructions.strip() if home_instructions else None,
+                        status="SCHEDULED",
+                    )
+
+                try:
+                    with db.session.begin_nested():
+                        self.booking_repo.add(booking)
+                        db.session.flush()
+                    break
+                except IntegrityError as ie:
+                    err_msg = str(ie).lower()
+                    is_ref_collision = (
+                        "bookings_booking_reference" in err_msg
+                        or "key (booking_reference)" in err_msg
+                    )
+                    if is_ref_collision and attempt < MAX_REF_ATTEMPTS - 1:
+                        continue
+                    raise
+
             db.session.commit()
             return booking
 
+        except IntegrityError:
+            db.session.rollback()
+            # Race condition: Did another concurrent worker commit with this exact idempotency key?
+            existing_booking = self.booking_repo.get_by_idempotency_key(clean_idempotency_key)
+            if existing_booking is not None:
+                return existing_booking
+            raise
         except Exception:
             db.session.rollback()
             raise
@@ -217,16 +243,27 @@ class BookingService:
         return self.booking_repo.get_by_reference(reference)
 
     def cancel_booking(self, reference: str) -> Booking:
-        """Cancel an existing booking and release slot capacity atomically."""
-        booking = self.get_booking_by_reference(reference)
-        if booking is None:
-            raise BookingNotFoundError(f"Booking reference '{reference}' not found.")
+        """Cancel an existing booking and release slot capacity atomically.
 
-        if booking.status == "CANCELLED":
-            return booking
+        Locks the Booking row first to guarantee concurrent cancellation requests
+        never decrement slot capacity multiple times.
+        """
+        if not reference or not reference.strip():
+            raise BookingNotFoundError("Booking reference is required.")
 
+        clean_ref = reference.strip().upper()
         try:
-            # Re-lock slot to release capacity safely
+            # 1. Lock the booking row first with SELECT ... FOR UPDATE
+            booking = self.booking_repo.get_by_reference(clean_ref, for_update=True)
+            if booking is None:
+                raise BookingNotFoundError(f"Booking reference '{reference}' not found.")
+
+            # 2. Check cancellation status after acquiring lock
+            if booking.status == "CANCELLED":
+                db.session.commit()
+                return booking
+
+            # 3. Lock slot to release capacity safely
             slot = self.branch_repo.get_slot_by_id(booking.availability_slot_id, for_update=True)
             if slot and slot.reserved_count > 0:
                 slot.reserved_count -= 1

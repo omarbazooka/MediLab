@@ -29,9 +29,15 @@ class BranchRepository:
         branch_id: int | None = None,
         visit_type: str | None = None,
         target_date: date | None = None,
+        from_date: date | None = None,
+        include_past: bool = False,
         active_only: bool = True,
     ) -> list[AvailabilitySlot]:
-        """Find slots with available capacity matching criteria."""
+        """Find slots with available capacity matching criteria.
+
+        By default, excludes slots prior to from_date (or current date if unspecified)
+        unless target_date is explicitly given or include_past is True.
+        """
         stmt = select(AvailabilitySlot).options(selectinload(AvailabilitySlot.branch))
 
         if active_only:
@@ -48,6 +54,9 @@ class BranchRepository:
 
         if target_date is not None:
             stmt = stmt.where(AvailabilitySlot.date == target_date)
+        elif not include_past:
+            effective_from = from_date or date.today()
+            stmt = stmt.where(AvailabilitySlot.date >= effective_from)
 
         stmt = stmt.order_by(AvailabilitySlot.date, AvailabilitySlot.time)
         return list(db.session.execute(stmt).scalars().all())

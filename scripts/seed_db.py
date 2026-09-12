@@ -312,6 +312,12 @@ def seed_availability_slots(branches: dict[str, Branch]) -> int:
         date(2026, 9, 17),
         date(2026, 9, 18),
         date(2026, 9, 19),
+        date(2026, 9, 20),
+        date(2026, 9, 21),
+        date(2026, 9, 22),
+        date(2026, 9, 23),
+        date(2026, 9, 24),
+        date(2026, 9, 25),
     ]
     times = [time(9, 0), time(11, 0), time(14, 0), time(17, 0)]
     slot_count = 0
@@ -382,8 +388,8 @@ def seed_knowledge_documents() -> dict[str, KnowledgeDocument]:
                 "Fasting instructions for diagnostic tests: For Lipid Profile, complete fasting "
                 "for 10 to 12 hours is required (water is permitted). For Fasting Blood Sugar (FBS), "
                 "an 8-hour fast is required. Coffee, tea, milk, juices, and smoking are strictly "
-                "prohibited during the fasting period. Regular medications should be taken unless "
-                "advised otherwise by your physician."
+                "prohibited during the fasting period. For medication-related preparation, follow "
+                "the instructions provided by your laboratory or qualified healthcare professional."
             ),
         },
         {
@@ -434,6 +440,10 @@ def seed_knowledge_documents() -> dict[str, KnowledgeDocument]:
             )
             db.session.add(doc)
             db.session.flush()
+        else:
+            if doc.content != item["content"]:
+                doc.content = item["content"]
+                db.session.flush()
         seeded[item["title"]] = doc
 
     return seeded

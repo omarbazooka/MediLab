@@ -27,8 +27,8 @@ class BookingRepository:
         )
         return db.session.execute(stmt).scalar_one_or_none()
 
-    def get_by_reference(self, reference: str) -> Booking | None:
-        """Fetch booking by unique human-readable reference."""
+    def get_by_reference(self, reference: str, for_update: bool = False) -> Booking | None:
+        """Fetch booking by unique human-readable reference, optionally locking the row."""
         stmt = (
             select(Booking)
             .where(Booking.booking_reference == reference.strip().upper())
@@ -40,6 +40,8 @@ class BookingRepository:
                 selectinload(Booking.home_visit),
             )
         )
+        if for_update:
+            stmt = stmt.with_for_update()
         return db.session.execute(stmt).scalar_one_or_none()
 
     def get_by_idempotency_key(self, idempotency_key: str) -> Booking | None:

@@ -11,6 +11,8 @@ from app.repositories.test_repository import TestRepository
 class TestService:
     """Business service for querying diagnostic tests and categories."""
 
+    __test__ = False
+
     def __init__(self, repository: TestRepository | None = None) -> None:
         self.repository = repository or TestRepository()
 

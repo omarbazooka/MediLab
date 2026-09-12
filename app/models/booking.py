@@ -41,7 +41,7 @@ class Booking(TimestampMixin, db.Model):
             name="ck_bookings_status",
         ),
         CheckConstraint(
-            "(visit_type = 'BRANCH' AND branch_id IS NOT NULL) OR (visit_type = 'HOME')",
+            "(visit_type = 'BRANCH' AND branch_id IS NOT NULL) OR (visit_type = 'HOME' AND branch_id IS NULL)",
             name="ck_bookings_branch_for_branch_visit",
         ),
         Index("ix_bookings_customer_id", "customer_id"),

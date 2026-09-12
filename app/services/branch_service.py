@@ -27,12 +27,16 @@ class BranchService:
         branch_id: int | None = None,
         visit_type: str | None = None,
         target_date: date | None = None,
+        from_date: date | None = None,
+        include_past: bool = False,
         active_only: bool = True,
     ) -> list[AvailabilitySlot]:
-        """Query available slots with unreserved capacity."""
+        """Query available slots with unreserved capacity, excluding past slots by default."""
         return self.repository.find_available_slots(
             branch_id=branch_id,
             visit_type=visit_type,
             target_date=target_date,
+            from_date=from_date,
+            include_past=include_past,
             active_only=active_only,
         )
