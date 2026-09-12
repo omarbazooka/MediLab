@@ -1,8 +1,4 @@
-"""Structured logging module for MediLab AI.
-
-Configures consistent, structured log output across the application,
-including timestamp, log level, module name, request ID, and message.
-"""
+"""Structured logging for MediLab AI."""
 
 from __future__ import annotations
 
@@ -19,7 +15,7 @@ if TYPE_CHECKING:
 
 
 class StructuredJsonFormatter(logging.Formatter):
-    """Formats log records as structured JSON entries."""
+    """Format application log records as structured JSON."""
 
     def format(self, record: logging.LogRecord) -> str:
         log_data: dict[str, Any] = {
@@ -29,38 +25,30 @@ class StructuredJsonFormatter(logging.Formatter):
             "message": record.getMessage(),
         }
 
-        # Include request ID if inside an active Flask request context
         if has_request_context():
             request_id = getattr(g, "request_id", None)
             if request_id:
                 log_data["request_id"] = request_id
 
-        # Include exception information server-side if present
+        extra_data = getattr(record, "extra_data", None)
+        if isinstance(extra_data, dict) and extra_data:
+            log_data["context"] = extra_data
+
         if record.exc_info:
             log_data["exception"] = self.formatException(record.exc_info)
 
-        # Include any extra metadata passed via logger call
-        if hasattr(record, "extra_data") and isinstance(record.extra_data, dict):
-            log_data.update(record.extra_data)
-
-        return json.dumps(log_data)
+        return json.dumps(log_data, ensure_ascii=False)
 
 
 def setup_logging(app: Flask) -> None:
-    """Configure structured logging for the Flask application.
-
-    Args:
-        app: Flask application instance.
-    """
-    log_level_name = app.config.get("LOG_LEVEL", "INFO")
+    """Configure a single structured stdout handler for the Flask app logger."""
+    log_level_name = str(app.config.get("LOG_LEVEL", "INFO")).upper()
     log_level = getattr(logging, log_level_name, logging.INFO)
 
-    # Avoid adding duplicate handlers if already configured
     handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(StructuredJsonFormatter())
     handler.setLevel(log_level)
 
-    # Configure application logger
     app.logger.handlers.clear()
     app.logger.addHandler(handler)
     app.logger.setLevel(log_level)
