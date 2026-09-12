@@ -6,6 +6,7 @@ from typing import Any
 
 from flask import Flask
 
+import app.models  # noqa: F401
 from app.blueprints import register_blueprints
 from app.config import get_config, load_environment_file
 from app.errors import register_error_handlers

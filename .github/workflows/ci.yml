@@ -66,6 +66,10 @@ jobs:
             psql -U postgres -d medilab -v ON_ERROR_STOP=1 \
             -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';" \
             -c "SELECT '[1,2,3]'::vector;"
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab
+        run: uv run flask db upgrade
       - name: Run real PostgreSQL integration tests
         env:
           TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab

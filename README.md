@@ -1,233 +1,208 @@
 # MediLab AI
 
 **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-**Current scope:** Phase 0 — Project Foundation
+**Current scope:** Phase 1 — Persistence, Business Models, Migrations & Seed Data  
+**Target Deadline:** 20 September 2026
 
-MediLab AI is a Flask-based assessment project that will later provide test/package discovery,
-RAG-backed laboratory information, persistent conversational context, and real booking actions.
-Phase 0 intentionally contains only the application/infrastructure foundation.
+MediLab AI is a diagnostic laboratory AI customer service and sales agent built with Flask, SQLAlchemy 2.x, PostgreSQL 17 (Supabase durable storage) + Docker PostgreSQL 16 (disposable test database), and pgvector.
 
-## Phase 0 scope
+---
 
-Implemented in this phase:
+## Phase 1 Scope & Deliverables
 
-- Flask application factory and centralized blueprint registration
-- Environment-driven configuration with strict production validation
-- Flask-SQLAlchemy and Flask-Migrate extension wiring
-- Structured JSON application logging with bounded request correlation IDs
-- Controlled HTTP error responses with safe 500 handling
-- `GET /health` process/database readiness probe
-- PostgreSQL + pgvector infrastructure through Docker Compose
-- One custom web `Dockerfile`
-- `uv` dependency management and lockfile
-- Pytest unit/integration structure and Ruff quality gates
-- GitHub Actions QA for unit checks plus real Docker/PostgreSQL/pgvector runtime validation
+Phase 1 establishes the persistent business foundation for the upcoming RAG, conversational, and booking workflows:
 
-Not implemented yet: business models, migrations/schema, seed data, LangGraph, RAG, bookings,
-customer chat, or the admin dashboard. Those belong to later phases.
+1. **15 Core SQLAlchemy 2.x Domain Models:**
+   - Catalog: `TestCategory`, `LabTest`, `Package`, `PackageTest`
+   - Facilities & Scheduling: `Branch`, `AvailabilitySlot`
+   - Customer & Booking: `Customer`, `Booking`, `BookingItem`, `HomeVisit`
+   - Knowledge & RAG: `KnowledgeDocument`, `KnowledgeChunk`
+   - Conversation State & Snapshots: `ConversationSession`, `ChatMessage`, `SearchSnapshot`
 
-## Architecture
+2. **Alembic Database Migrations:**
+   - Authoritative, reversible initial migration with pgvector extension creation.
+   - Clean circular FK resolution (`ConversationSession.active_snapshot_id` <-> `SearchSnapshot.session_id`) using `use_alter=True` and post-creation foreign key assignment.
+   - Automated PostgreSQL database trigger maintaining `KnowledgeChunk.search_vector` via `to_tsvector('simple', content)`.
 
-Phase 0 keeps a modular Flask monolith and avoids speculative layers.
+3. **Authoritative Slot Reservation & Scheduling:**
+   - Distinct partial uniqueness:
+     - `BRANCH`: unique on `(branch_id, date, time)` where `visit_type = 'BRANCH'`
+     - `HOME`: unique on `(date, time)` where `visit_type = 'HOME' AND branch_id IS NULL`
+   - `Booking.availability_slot_id` is the authoritative source for the reserved slot; `scheduled_date`, `scheduled_time`, `branch_id`, and `visit_type` are retained as immutable snapshots.
+
+4. **1-to-1 HomeVisit Workflow:**
+   - Separate `home_visits` table with bounded status enum (`REQUESTED`, `SCHEDULED`, `DISPATCHED`, `SAMPLE_COLLECTED`, `CANCELLED`).
+
+5. **Customer Resolution:**
+   - `Customer.phone` is constrained as `unique=True, index=True` for unambiguous deterministic customer resolution.
+
+6. **Transactional Booking Service:**
+   - Atomic slot capacity locking with `with_for_update`.
+   - Idempotency key protection preventing duplicate bookings or overbooking.
+   - Immediate rollback on failure leaving zero partial state.
+   - Canonical booking reference generation: `MLB-YYYYMMDD-XXXX`.
+
+7. **Deterministic Seed Data (`scripts/seed_db.py`):**
+   - 5 Categories (`Hematology`, `Clinical Chemistry`, `Endocrinology & Hormones`, `Diabetes Care`, `General Wellness`)
+   - 11 Lab Tests (including 1 inactive legacy audit test)
+   - 3 Packages (`Comprehensive Health Checkup`, `Diabetes Monitoring`, `Vitality & Wellness`)
+   - 4 Cairo Branches (`Nasr City`, `Maadi`, `Dokki`, `New Cairo`) with bilingual opening hours
+   - 95 Branch and Home Availability Slots
+   - 4 Authoritative Knowledge Documents (`index_status='PENDING'`)
+   - 100% idempotent via natural keys.
+
+---
+
+## Architecture Decisions (Locked)
+
+Detailed in `docs/decisions.md`:
+
+| Decision | Specification |
+|---|---|
+| **Durable Application DB** | Supabase-hosted PostgreSQL 17 (`aws-1-eu-west-1.pooler.supabase.com:5432/postgres`) via `DATABASE_URL` |
+| **Disposable Test DB** | Docker Compose PostgreSQL 16 + pgvector (`localhost:5432/medilab_test` or `5433`) via `TEST_DATABASE_URL` |
+| **Test Safety Guard** | Hard-coded runtime guard blocks integration tests if `TEST_DATABASE_URL == DATABASE_URL` or points to Supabase |
+| **Embeddings** | `intfloat/multilingual-e5-small` / `VECTOR(384)` |
+| **FTS Configuration** | Database trigger maintains `search_vector` with `simple` dictionary and GIN index |
+| **FK Cascades** | Strict child-owned cascades only (`Doc -> Chunk`, `Session -> Message/Snapshot`, `Booking -> Item/HomeVisit`, `Package -> PackageTest`). Business references enforce `RESTRICT` |
+
+---
+
+## Directory Layout
 
 ```text
 medilab-ai/
 ├── app/
-│   ├── __init__.py              # application factory / wiring
-│   ├── config.py                # environment resolution + validation
-│   ├── errors.py                # centralized HTTP error handling
-│   ├── extensions.py            # Flask extension singletons
-│   ├── logging.py               # structured JSON logging
-│   ├── request_ids.py           # bounded request-correlation middleware
-│   └── blueprints/
-│       ├── __init__.py          # centralized blueprint registry
-│       └── health/
-│           ├── __init__.py
-│           └── routes.py        # operational /health endpoint
-├── tests/
-│   ├── conftest.py
-│   ├── unit/
-│   └── integration/             # real PostgreSQL tests are marked `postgres`
+│   ├── blueprints/
+│   │   ├── __init__.py
+│   │   └── health/
+│   ├── models/                  # 15 SQLAlchemy 2.x domain models
+│   │   ├── __init__.py
+│   │   ├── base.py              # TimestampMixin, JSON_VARIANT, TSVECTOR_VARIANT
+│   │   ├── booking.py           # Booking, BookingItem
+│   │   ├── branch.py            # Branch, AvailabilitySlot
+│   │   ├── conversation.py      # ConversationSession, ChatMessage
+│   │   ├── customer.py          # Customer
+│   │   ├── home_visit.py        # HomeVisit (1:1 with Booking)
+│   │   ├── knowledge.py         # KnowledgeDocument, KnowledgeChunk (VECTOR(384))
+│   │   ├── package.py           # Package, PackageTest
+│   │   ├── snapshot.py          # SearchSnapshot
+│   │   └── test.py              # TestCategory, LabTest
+│   ├── repositories/            # Data access layers
+│   │   ├── booking_repository.py
+│   │   ├── branch_repository.py
+│   │   ├── customer_repository.py
+│   │   ├── package_repository.py
+│   │   └── test_repository.py
+│   ├── services/                # Business logic services
+│   │   ├── booking_service.py   # Atomic slot locking, idempotency, cancellation
+│   │   ├── branch_service.py
+│   │   ├── package_service.py
+│   │   └── test_service.py
+│   ├── config.py
+│   ├── errors.py
+│   ├── extensions.py
+│   ├── logging.py
+│   └── request_ids.py
+├── docs/
+│   └── decisions.md             # Locked architectural decisions log
+├── migrations/                  # Alembic migration revisions
+│   └── versions/
+│       └── 7f6eb611e707_initial_phase1_schema.py
 ├── scripts/
-│   └── init-pgvector.sql
-├── .github/workflows/ci.yml
-├── Dockerfile
+│   ├── seed_db.py               # Idempotent catalog, branch, and policy seed script
+│   └── verify_db.py             # PostgreSQL connection and pgvector verification
+├── tests/
+│   ├── conftest.py              # App fixtures & database safety isolation guard
+│   ├── unit/                    # Fast isolated unit test suite (31 tests)
+│   └── integration/             # Real PostgreSQL integration suite (10 tests)
 ├── docker-compose.yml
+├── Dockerfile
 ├── pyproject.toml
-├── uv.lock
-├── .env.example
-└── run.py
+└── .env.example
 ```
 
-Blueprints remain the Flask HTTP organization mechanism. Future template surfaces (`public`, `chat`,
-`admin`) and any JSON/API endpoints can be added as real requirements arrive; Phase 0 does not create
-empty API modules merely for appearance.
+---
 
-## Requirements
+## Setup & Running
 
-- Python 3.11+ (3.12 is used in Docker/CI)
-- `uv`
-- Docker + Docker Compose for PostgreSQL/pgvector runtime validation
-
-## Local setup
+### 1. Environment Setup
 
 ```bash
 git clone https://github.com/omarbazooka/MediLab.git
 cd MediLab
+git checkout feat/phase1-database-foundation
 cp .env.example .env
 uv sync
 ```
 
-The application environment is selected with `MEDILAB_ENV`:
+Set credentials in `.env`:
+- `DATABASE_URL`: Supabase PostgreSQL URL
+- `TEST_DATABASE_URL`: Local disposable Docker PostgreSQL URL (`postgresql+psycopg://postgres:postgres@localhost:5432/medilab_test`)
 
-- `development`
-- `testing`
-- `production`
+### 2. Database Migrations
 
-`FLASK_ENV` is intentionally not used.
-
-## Run locally
-
-Start PostgreSQL/pgvector first if the application should report healthy database readiness:
-
+Apply migration to Supabase application database:
 ```bash
-docker compose up -d db
-uv run python run.py
+uv run flask db upgrade
 ```
 
-Then:
-
+Verify migration status:
 ```bash
-curl http://127.0.0.1:5000/health
+uv run flask db current
 ```
 
-A healthy response is HTTP 200:
-
-```json
-{
-  "status": "ok",
-  "database": "connected",
-  "timestamp": "..."
-}
-```
-
-If the database cannot be reached, `/health` returns HTTP 503 with a controlled payload and does not
-expose the connection string or traceback.
-
-## Docker Compose
-
-The Compose stack contains only the Phase 0 services:
-
-- `web` — built from the single project `Dockerfile`
-- `db` — `pgvector/pgvector:0.8.6-pg16-bookworm`
-
+Test clean migration rebuild on disposable test DB:
 ```bash
-docker compose config
-docker compose up -d --build
-docker compose ps
-docker compose logs -f web
+$env:FLASK_APP="app:create_app('testing', test_config={'SQLALCHEMY_DATABASE_URI': '$env:TEST_DATABASE_URL'})"
+uv run flask db downgrade base
+uv run flask db upgrade
 ```
 
-Stop the stack with:
+### 3. Database Seeding
 
+Run idempotent catalog seed:
 ```bash
-docker compose down
+uv run python scripts/seed_db.py
 ```
 
-To remove the assessment database volume intentionally:
-
+Verify connection and pgvector extension:
 ```bash
-docker compose down -v
+uv run python scripts/verify_db.py
 ```
 
-The source tree is mounted to `/app` for development. The container virtual environment is stored at
-`/opt/venv`, so the bind mount cannot hide or replace Linux dependencies with a host `.venv`.
+---
 
-The Phase 0 image runs `run.py` for the local/demo environment. A dedicated production WSGI command
-should be selected when an actual deployment target is chosen; deployment-provider details are not
-part of the current assessment phase.
+## Tests and Quality Gates
 
-## Environment variables
-
-| Variable | Purpose | Development default |
-|---|---|---|
-| `MEDILAB_ENV` | application environment | `development` |
-| `SECRET_KEY` | Flask signing/session secret | insecure local placeholder |
-| `DATABASE_URL` | application PostgreSQL URL | local `medilab` database |
-| `HOST` | local Flask bind host | `0.0.0.0` |
-| `PORT` | application/host port | `5000` |
-| `LOG_LEVEL` | structured log level | `INFO` |
-| `POSTGRES_DB` | Compose database | `medilab` |
-| `POSTGRES_USER` | Compose database user | `postgres` |
-| `POSTGRES_PASSWORD` | Compose database password | local-only placeholder |
-| `POSTGRES_PORT` | host PostgreSQL port | `5432` |
-| `TEST_DATABASE_URL` | real PostgreSQL integration-test URL | unset |
-
-Production configuration rejects known/default secret values, requires at least a 32-character secret,
-and requires a parseable PostgreSQL URL with a database name.
-
-## Tests and quality gates
-
-Fast unit suite (no Docker/PostgreSQL required):
-
+Fast unit test suite (runs in memory without Docker/PostgreSQL):
 ```bash
 uv run pytest tests/unit
+```
+
+PostgreSQL integration test suite (targets disposable Docker DB only):
+```bash
+uv run pytest tests/integration
+```
+
+Run entire 41-test suite:
+```bash
+uv run pytest
+```
+
+Code formatting and linting:
+```bash
 uv run ruff check .
 uv run ruff format --check .
 ```
 
-Real PostgreSQL/pgvector integration tests require `TEST_DATABASE_URL`:
+---
 
-```bash
-TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab \
-  uv run pytest -m postgres
-```
+## QA Handoff Status
 
-On Windows PowerShell:
-
-```powershell
-$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab"
-uv run pytest -m postgres
-```
-
-GitHub Actions runs both quality checks and a real Compose runtime flow: build/start containers, call
-`/health`, query the installed pgvector extension, run marked PostgreSQL tests, and tear the stack down.
-
-## Error and request handling
-
-HTTP errors return a consistent JSON envelope:
-
-```json
-{
-  "error": {
-    "code": "not_found",
-    "message": "The requested resource was not found."
-  }
-}
-```
-
-Unexpected exceptions are logged server-side and returned to clients as a generic 500 response.
-Request correlation uses `X-Request-ID`; safe bounded IDs are preserved and invalid/oversized values are
-replaced with a generated UUID.
-
-## pgvector bootstrap vs migrations
-
-`scripts/init-pgvector.sql` enables the extension when a fresh Compose PostgreSQL volume is initialized.
-It is Phase 0 infrastructure bootstrap only. Starting in Phase 1, Alembic migrations become the
-authoritative reproducible schema path, including extension/schema changes.
-
-## Phase status semantics
-
-Code existence alone is not considered completion:
-
-- `IMPLEMENTED` — code exists
-- `TESTED` — automated evidence passes
-- `LIVE_VERIFIED` — real runtime evidence proves the behavior
-
-Phase 0 should only be marked fully `LIVE_VERIFIED` after the Docker/PostgreSQL/pgvector runtime gate
-passes on the current commit.
-
-## Next phase
-
-Phase 1 introduces SQLAlchemy business models, Alembic migrations, PostgreSQL constraints/indexes, and
-realistic seed data. RAG and LangGraph remain later phases.
+- **Branch:** `feat/phase1-database-foundation`
+- **Pull Request:** Open against `main` (not merged, pending independent QA review)
+- **Unit Tests:** 31 passed
+- **Integration Tests:** 10 passed (targeting disposable Docker PostgreSQL)
+- **Supabase Durable DB:** Migrated and seeded idempotently
+- **Zero regressions** against Phase 0 baseline
