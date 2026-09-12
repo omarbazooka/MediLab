@@ -1,208 +1,260 @@
 # MediLab AI
 
 **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-**Current scope:** Phase 1 — Persistence, Business Models, Migrations & Seed Data  
-**Target Deadline:** 20 September 2026
+**Current scope:** Phase 1 — ORM, Migrations & Seed Data  
+**Target deadline:** 20 September 2026
 
-MediLab AI is a diagnostic laboratory AI customer service and sales agent built with Flask, SQLAlchemy 2.x, PostgreSQL 17 (Supabase durable storage) + Docker PostgreSQL 16 (disposable test database), and pgvector.
+MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 1 establishes the deterministic PostgreSQL persistence and business-service foundation that later RAG, LangGraph, customer UI, and admin phases will use.
 
----
+## Phase 1 status
 
-## Phase 1 Scope & Deliverables
+Implemented and locally/live verified on the Phase 1 branch:
 
-Phase 1 establishes the persistent business foundation for the upcoming RAG, conversational, and booking workflows:
+- 15 SQLAlchemy 2.x domain models
+- Supabase-hosted PostgreSQL as the durable application database
+- disposable Docker PostgreSQL 16 + pgvector for migration/integration testing
+- Alembic migrations through revision `44cef7a277a7`
+- pgvector `VECTOR(384)` schema for `intfloat/multilingual-e5-small`
+- PostgreSQL FTS `TSVECTOR` maintenance trigger + GIN index
+- deterministic test/package/branch/availability services
+- transactional branch and HOME booking service
+- slot row locking, idempotency, controlled rollback, cancellation locking
+- visible `SearchSnapshot` persistence with cross-session active-snapshot protection
+- deterministic, rerunnable fictional seed data
 
-1. **15 Core SQLAlchemy 2.x Domain Models:**
-   - Catalog: `TestCategory`, `LabTest`, `Package`, `PackageTest`
-   - Facilities & Scheduling: `Branch`, `AvailabilitySlot`
-   - Customer & Booking: `Customer`, `Booking`, `BookingItem`, `HomeVisit`
-   - Knowledge & RAG: `KnowledgeDocument`, `KnowledgeChunk`
-   - Conversation State & Snapshots: `ConversationSession`, `ChatMessage`, `SearchSnapshot`
+Not implemented yet: RAG runtime/retrieval, LangGraph orchestration, customer chat UI, admin dashboard, and Meta Messenger.
 
-2. **Alembic Database Migrations:**
-   - Authoritative, reversible initial migration with pgvector extension creation.
-   - Clean circular FK resolution (`ConversationSession.active_snapshot_id` <-> `SearchSnapshot.session_id`) using `use_alter=True` and post-creation foreign key assignment.
-   - Automated PostgreSQL database trigger maintaining `KnowledgeChunk.search_vector` via `to_tsvector('simple', content)`.
+## Core Phase 1 models
 
-3. **Authoritative Slot Reservation & Scheduling:**
-   - Distinct partial uniqueness:
-     - `BRANCH`: unique on `(branch_id, date, time)` where `visit_type = 'BRANCH'`
-     - `HOME`: unique on `(date, time)` where `visit_type = 'HOME' AND branch_id IS NULL`
-   - `Booking.availability_slot_id` is the authoritative source for the reserved slot; `scheduled_date`, `scheduled_time`, `branch_id`, and `visit_type` are retained as immutable snapshots.
+- `TestCategory`, `LabTest`
+- `Package`, `PackageTest`
+- `Branch`, `AvailabilitySlot`
+- `Customer`
+- `Booking`, `BookingItem`, `HomeVisit`
+- `KnowledgeDocument`, `KnowledgeChunk`
+- `ConversationSession`, `ChatMessage`, `SearchSnapshot`
 
-4. **1-to-1 HomeVisit Workflow:**
-   - Separate `home_visits` table with bounded status enum (`REQUESTED`, `SCHEDULED`, `DISPATCHED`, `SAMPLE_COLLECTED`, `CANCELLED`).
+## Locked database decisions
 
-5. **Customer Resolution:**
-   - `Customer.phone` is constrained as `unique=True, index=True` for unambiguous deterministic customer resolution.
+Detailed decisions are recorded in `docs/decisions.md`.
 
-6. **Transactional Booking Service:**
-   - Atomic slot capacity locking with `with_for_update`.
-   - Idempotency key protection preventing duplicate bookings or overbooking.
-   - Immediate rollback on failure leaving zero partial state.
-   - Canonical booking reference generation: `MLB-YYYYMMDD-XXXX`.
+- **Durable app DB:** Supabase-hosted PostgreSQL via `DATABASE_URL`
+- **Disposable test DB:** Docker PostgreSQL + pgvector at `localhost:5432/medilab` via `TEST_DATABASE_URL`
+- **Embedding schema contract:** `intfloat/multilingual-e5-small`, `VECTOR(384)`
+- **HOME visit:** separate one-to-one `home_visits` table
+- **Authoritative booking slot:** `Booking.availability_slot_id`
+- **HOME/BRANCH slot uniqueness:** PostgreSQL partial unique indexes
+- **FTS maintenance:** migration-managed trigger using `to_tsvector('simple', content)`
+- **Customer resolution:** unique phone number
 
-7. **Deterministic Seed Data (`scripts/seed_db.py`):**
-   - 5 Categories (`Hematology`, `Clinical Chemistry`, `Endocrinology & Hormones`, `Diabetes Care`, `General Wellness`)
-   - 11 Lab Tests (including 1 inactive legacy audit test)
-   - 3 Packages (`Comprehensive Health Checkup`, `Diabetes Monitoring`, `Vitality & Wellness`)
-   - 4 Cairo Branches (`Nasr City`, `Maadi`, `Dokki`, `New Cairo`) with bilingual opening hours
-   - 95 Branch and Home Availability Slots
-   - 4 Authoritative Knowledge Documents (`index_status='PENDING'`)
-   - 100% idempotent via natural keys.
+## Environment
 
----
-
-## Architecture Decisions (Locked)
-
-Detailed in `docs/decisions.md`:
-
-| Decision | Specification |
-|---|---|
-| **Durable Application DB** | Supabase-hosted PostgreSQL 17 (`aws-1-eu-west-1.pooler.supabase.com:5432/postgres`) via `DATABASE_URL` |
-| **Disposable Test DB** | Docker Compose PostgreSQL 16 + pgvector (`localhost:5432/medilab_test` or `5433`) via `TEST_DATABASE_URL` |
-| **Test Safety Guard** | Hard-coded runtime guard blocks integration tests if `TEST_DATABASE_URL == DATABASE_URL` or points to Supabase |
-| **Embeddings** | `intfloat/multilingual-e5-small` / `VECTOR(384)` |
-| **FTS Configuration** | Database trigger maintains `search_vector` with `simple` dictionary and GIN index |
-| **FK Cascades** | Strict child-owned cascades only (`Doc -> Chunk`, `Session -> Message/Snapshot`, `Booking -> Item/HomeVisit`, `Package -> PackageTest`). Business references enforce `RESTRICT` |
-
----
-
-## Directory Layout
-
-```text
-medilab-ai/
-├── app/
-│   ├── blueprints/
-│   │   ├── __init__.py
-│   │   └── health/
-│   ├── models/                  # 15 SQLAlchemy 2.x domain models
-│   │   ├── __init__.py
-│   │   ├── base.py              # TimestampMixin, JSON_VARIANT, TSVECTOR_VARIANT
-│   │   ├── booking.py           # Booking, BookingItem
-│   │   ├── branch.py            # Branch, AvailabilitySlot
-│   │   ├── conversation.py      # ConversationSession, ChatMessage
-│   │   ├── customer.py          # Customer
-│   │   ├── home_visit.py        # HomeVisit (1:1 with Booking)
-│   │   ├── knowledge.py         # KnowledgeDocument, KnowledgeChunk (VECTOR(384))
-│   │   ├── package.py           # Package, PackageTest
-│   │   ├── snapshot.py          # SearchSnapshot
-│   │   └── test.py              # TestCategory, LabTest
-│   ├── repositories/            # Data access layers
-│   │   ├── booking_repository.py
-│   │   ├── branch_repository.py
-│   │   ├── customer_repository.py
-│   │   ├── package_repository.py
-│   │   └── test_repository.py
-│   ├── services/                # Business logic services
-│   │   ├── booking_service.py   # Atomic slot locking, idempotency, cancellation
-│   │   ├── branch_service.py
-│   │   ├── package_service.py
-│   │   └── test_service.py
-│   ├── config.py
-│   ├── errors.py
-│   ├── extensions.py
-│   ├── logging.py
-│   └── request_ids.py
-├── docs/
-│   └── decisions.md             # Locked architectural decisions log
-├── migrations/                  # Alembic migration revisions
-│   └── versions/
-│       └── 7f6eb611e707_initial_phase1_schema.py
-├── scripts/
-│   ├── seed_db.py               # Idempotent catalog, branch, and policy seed script
-│   └── verify_db.py             # PostgreSQL connection and pgvector verification
-├── tests/
-│   ├── conftest.py              # App fixtures & database safety isolation guard
-│   ├── unit/                    # Fast isolated unit test suite (31 tests)
-│   └── integration/             # Real PostgreSQL integration suite (10 tests)
-├── docker-compose.yml
-├── Dockerfile
-├── pyproject.toml
-└── .env.example
-```
-
----
-
-## Setup & Running
-
-### 1. Environment Setup
+Copy the example file and fill only local credentials/secrets:
 
 ```bash
-git clone https://github.com/omarbazooka/MediLab.git
-cd MediLab
-git checkout feat/phase1-database-foundation
 cp .env.example .env
-uv sync
 ```
 
-Set credentials in `.env`:
-- `DATABASE_URL`: Supabase PostgreSQL URL
-- `TEST_DATABASE_URL`: Local disposable Docker PostgreSQL URL (`postgresql+psycopg://postgres:postgres@localhost:5432/medilab_test`)
+Required application variables:
 
-### 2. Database Migrations
+```dotenv
+MEDILAB_ENV=development
+SECRET_KEY=<secure-local-secret>
+DATABASE_URL=postgresql+psycopg://<supabase-user>:<password>@<host>:5432/postgres?sslmode=require
+HOST=0.0.0.0
+PORT=5000
+LOG_LEVEL=INFO
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/medilab
+```
 
-Apply migration to Supabase application database:
+Do not commit `.env`, Supabase passwords, service-role keys, or connection strings containing real credentials.
+
+## Install
+
 ```bash
+uv sync --frozen
+```
+
+## Disposable PostgreSQL / pgvector test database
+
+Start only the disposable database service:
+
+```bash
+docker compose up -d db
+docker compose ps
+```
+
+The Compose database is assessment/test infrastructure, not the durable application source of truth.
+
+## Application database migration
+
+For the real MediLab Supabase database:
+
+```bash
+uv run flask db current
 uv run flask db upgrade
-```
-
-Verify migration status:
-```bash
 uv run flask db current
 ```
 
-Test clean migration rebuild on disposable test DB:
-```bash
-$env:FLASK_APP="app:create_app('testing', test_config={'SQLALCHEMY_DATABASE_URI': '$env:TEST_DATABASE_URL'})"
-uv run flask db downgrade base
-uv run flask db upgrade
+Current Phase 1 migration head:
+
+```text
+44cef7a277a7
 ```
 
-### 3. Database Seeding
+### Clean migration rebuild — disposable DB only
 
-Run idempotent catalog seed:
+Never run destructive downgrade/rebuild checks against Supabase.
+
+PowerShell example:
+
+```powershell
+$env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
+uv run flask db downgrade base
+uv run flask db upgrade
+Remove-Item Env:DATABASE_URL
+```
+
+A clean disposable rebuild has been verified through:
+
+```text
+base -> 7f6eb611e707 -> 44cef7a277a7
+```
+
+## Seed data
+
+Run against the currently configured `DATABASE_URL`:
+
 ```bash
 uv run python scripts/seed_db.py
 ```
 
-Verify connection and pgvector extension:
+The current fictional seed baseline is:
+
+- 5 categories
+- 11 lab tests
+- 3 packages
+- 4 Cairo branches
+- 209 availability slots covering 15–25 September 2026
+- 4 non-clinical knowledge documents with `index_status='PENDING'`
+
+Running the seed twice is verified to keep the same entity counts without duplicate rows.
+
+## Database verification
+
 ```bash
 uv run python scripts/verify_db.py
 ```
 
----
+The verification script checks the configured database for:
 
-## Tests and Quality Gates
+- PostgreSQL connectivity
+- pgvector extension
+- Alembic revision `44cef7a277a7`
+- 15 core tables
+- active snapshot-integrity trigger
+- strengthened HOME booking constraint
+- seed counts
 
-Fast unit test suite (runs in memory without Docker/PostgreSQL):
+## Business-service behavior
+
+`BookingService` is deterministic and independently testable; it is not yet a LangGraph tool.
+
+Creation behavior includes:
+
+1. validate required input
+2. resolve and lock the selected availability slot
+3. validate visit type/branch/capacity
+4. resolve/create customer
+5. validate selected tests/packages and snapshot prices
+6. reserve capacity transactionally
+7. persist booking/items and optional `HomeVisit`
+8. commit before returning the real booking reference
+
+Booking references use:
+
+```text
+MLB-YYYYMMDD-XXXXXXXX
+```
+
+Cancellation locks the booking row before status evaluation and locks the authoritative slot before releasing capacity, preventing a concurrent double-decrement.
+
+## Tests
+
+Fast unit tests:
+
 ```bash
 uv run pytest tests/unit
 ```
 
-PostgreSQL integration test suite (targets disposable Docker DB only):
-```bash
-uv run pytest tests/integration
+Verified result on the Phase 1 QA commit:
+
+```text
+43 passed
 ```
 
-Run entire 41-test suite:
+Real PostgreSQL integration tests:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
+uv run pytest -m postgres -v
+```
+
+Verified result:
+
+```text
+15 passed, 43 deselected
+```
+
+Full suite:
+
 ```bash
 uv run pytest
 ```
 
-Code formatting and linting:
+Verified result:
+
+```text
+58 passed
+```
+
+Quality gates:
+
 ```bash
 uv run ruff check .
 uv run ruff format --check .
 ```
 
----
+Verified result:
 
-## QA Handoff Status
+```text
+All checks passed
+51 files already formatted
+```
 
-- **Branch:** `feat/phase1-database-foundation`
-- **Pull Request:** Open against `main` (not merged, pending independent QA review)
-- **Unit Tests:** 31 passed
-- **Integration Tests:** 10 passed (targeting disposable Docker PostgreSQL)
-- **Supabase Durable DB:** Migrated and seeded idempotently
-- **Zero regressions** against Phase 0 baseline
+## CI
+
+`.github/workflows/ci.yml` contains two gates:
+
+- unit tests + Ruff
+- Docker/PostgreSQL/pgvector runtime + migrations + PostgreSQL integration tests
+
+The Docker job explicitly injects an ephemeral local `DATABASE_URL` for the web container; it does not use Supabase in CI.
+
+At the time of Phase 1 QA, GitHub-hosted Actions runs are failing before any step is assigned (`steps=[]`, Docker job skipped). This is treated as an external runner/startup issue, not as passing CI evidence. Local Docker/PostgreSQL and Supabase verification are the current runtime evidence.
+
+## Healthcare boundary
+
+MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 1 seed knowledge is limited to approved customer-service/preparation/process information.
+
+## Phase status semantics
+
+- `IMPLEMENTED`: code exists
+- `TESTED`: automated evidence passes
+- `LIVE_VERIFIED`: real runtime/database evidence proves the behavior
+
+Phase 1 should only be marked complete after independent QA accepts the current PR/commit.
+
+## Next phase
+
+Phase 2 implements RAG independently of LangGraph: managed knowledge lifecycle, chunking/embeddings, pgvector + PostgreSQL FTS hybrid retrieval, RRF, retrieval grading, bounded retry, and CRUD synchronization.
