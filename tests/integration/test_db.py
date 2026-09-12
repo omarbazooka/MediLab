@@ -20,10 +20,7 @@ def test_postgresql_connection(postgres_app: Flask) -> None:
 def test_pgvector_available_and_functional(postgres_app: Flask) -> None:
     with postgres_app.app_context(), db.engine.begin() as connection:
         available_version = connection.execute(
-            text(
-                "SELECT default_version FROM pg_available_extensions "
-                "WHERE name = 'vector'"
-            )
+            text("SELECT default_version FROM pg_available_extensions WHERE name = 'vector'")
         ).scalar_one_or_none()
         assert available_version is not None, "pgvector is not available in PostgreSQL"
 
