@@ -2,15 +2,13 @@ name: medilab-ai
 
 services:
   db:
-    image: pgvector/pgvector:pg16
-    container_name: medilab_db
-    restart: unless-stopped
+    image: pgvector/pgvector:0.8.6-pg16-bookworm
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-medilab}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
     ports:
-      - "5432:5432"
+      - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./scripts/init-pgvector.sql:/docker-entrypoint-initdb.d/01-init-pgvector.sql:ro
@@ -18,22 +16,23 @@ services:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-medilab}"]
       interval: 5s
       timeout: 5s
-      retries: 5
+      retries: 10
+      start_period: 5s
 
   web:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: medilab_web
-    restart: unless-stopped
     ports:
-      - "5000:5000"
+      - "${PORT:-5000}:5000"
     environment:
-      FLASK_ENV: ${FLASK_ENV:-development}
+      MEDILAB_ENV: ${MEDILAB_ENV:-development}
       SECRET_KEY: ${SECRET_KEY:-dev-insecure-secret-key-for-local-development-only-12345}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-medilab}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      HOST: 0.0.0.0
       PORT: 5000
+      UV_PROJECT_ENVIRONMENT: /opt/venv
     volumes:
       - .:/app
     depends_on:

@@ -1,245 +1,233 @@
 # MediLab AI
 
-> **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-> **Status:** Phase 0 — Project Foundation
+**Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
+**Current scope:** Phase 0 — Project Foundation
 
----
+MediLab AI is a Flask-based assessment project that will later provide test/package discovery,
+RAG-backed laboratory information, persistent conversational context, and real booking actions.
+Phase 0 intentionally contains only the application/infrastructure foundation.
 
-## 1. Project Overview
+## Phase 0 scope
 
-**MediLab AI** is an intelligent sales and customer service agent for a diagnostic laboratory. The application will eventually assist patients and laboratory staff with diagnostic test and package discovery, branch and home-visit appointment scheduling, pre-test preparation instructions, and booking management via a conversational agent and an administrative dashboard.
+Implemented in this phase:
 
-### Current Implementation Status: Phase 0 Foundation
+- Flask application factory and centralized blueprint registration
+- Environment-driven configuration with strict production validation
+- Flask-SQLAlchemy and Flask-Migrate extension wiring
+- Structured JSON application logging with bounded request correlation IDs
+- Controlled HTTP error responses with safe 500 handling
+- `GET /health` process/database readiness probe
+- PostgreSQL + pgvector infrastructure through Docker Compose
+- One custom web `Dockerfile`
+- `uv` dependency management and lockfile
+- Pytest unit/integration structure and Ruff quality gates
+- GitHub Actions QA for unit checks plus real Docker/PostgreSQL/pgvector runtime validation
 
-This repository currently implements **Phase 0 (Project Foundation)** only. In accordance with the project specification:
-- **No business domain models** (e.g. `LabTest`, `Booking`, `Branch`) are created yet.
-- **No RAG retrieval, vector search pipelines, or LangGraph orchestration workflows** are implemented yet.
-- **No administrative dashboards, chat UI, or booking business logic** are implemented yet.
+Not implemented yet: business models, migrations/schema, seed data, LangGraph, RAG, bookings,
+customer chat, or the admin dashboard. Those belong to later phases.
 
-Phase 0 strictly establishes a clean, maintainable, production-ready foundation with:
-- Modular Flask monolith layout with the application factory pattern (`create_app`)
-- Environment configuration validation with strict production rules
-- Centralized extensions initialization (`Flask-SQLAlchemy`, `Flask-Migrate`)
-- Robust structured logging (JSON formatted with `request_id` correlation)
-- Centralized HTTP error handling (400, 404, 405, 500 without leaking stack traces or internal secrets)
-- Docker & Docker Compose setup using a single custom web image and PostgreSQL with pgvector (`pgvector/pgvector:pg16`)
-- Automated testing suite with Pytest and Ruff linting/formatting
+## Architecture
 
----
-
-## 2. Technology Stack (Phase 0)
-
-| Layer / Concern | Technology | Purpose |
-| :--- | :--- | :--- |
-| **Language** | Python 3.11+ (Python 3.12 / 3.13) | Core runtime |
-| **Framework** | Flask 3.x | Application server (Application Factory & Blueprints) |
-| **Database ORM** | Flask-SQLAlchemy / SQLAlchemy 2.x | Relational persistence abstraction |
-| **Database Migrations** | Flask-Migrate / Alembic | Schema migration management |
-| **Database & Vector Storage** | PostgreSQL + pgvector (`pgvector:pg16`) | Primary relational and vector database |
-| **Package Management** | uv | Deterministic, high-speed dependency resolution |
-| **Containerization** | Docker & Docker Compose | Container orchestration (`web` and `db`) |
-| **Testing** | pytest, pytest-flask | Unit and integration test suite |
-| **Code Quality** | Ruff | Linter and code formatter |
-
----
-
-## 3. Project Structure
+Phase 0 keeps a modular Flask monolith and avoids speculative layers.
 
 ```text
 medilab-ai/
 ├── app/
-│   ├── __init__.py           # Flask application factory (create_app)
-│   ├── config.py             # Environment configurations & validation rules
-│   ├── extensions.py         # Extension singletons (SQLAlchemy, Migrate)
-│   ├── logging.py            # Structured JSON logger & Request ID formatting
-│   ├── errors.py             # Centralized JSON error handlers (400, 404, 405, 500)
+│   ├── __init__.py              # application factory / wiring
+│   ├── config.py                # environment resolution + validation
+│   ├── errors.py                # centralized HTTP error handling
+│   ├── extensions.py            # Flask extension singletons
+│   ├── logging.py               # structured JSON logging
+│   ├── request_ids.py           # bounded request-correlation middleware
 │   └── blueprints/
-│       ├── __init__.py
-│       └── health/           # Health probe blueprint (/health)
+│       ├── __init__.py          # centralized blueprint registry
+│       └── health/
 │           ├── __init__.py
-│           └── routes.py
+│           └── routes.py        # operational /health endpoint
 ├── tests/
-│   ├── conftest.py           # Test fixtures (app, client, isolated sqlite)
+│   ├── conftest.py
 │   ├── unit/
-│   │   ├── test_config.py    # Configuration & security validation tests
-│   │   ├── test_factory.py   # Application factory & request ID middleware tests
-│   │   └── test_errors.py    # Error handling & traceback suppression tests
-│   └── integration/
-│       ├── test_health.py    # Health endpoint contracts & degradation tests
-│       └── test_db.py        # Database connectivity & pgvector extension tests
+│   └── integration/             # real PostgreSQL tests are marked `postgres`
 ├── scripts/
-│   └── init-pgvector.sql     # PostgreSQL entrypoint SQL enabling pgvector
-├── Dockerfile                # Single production-minded web application image
-├── docker-compose.yml        # Multi-container orchestration (web + db)
-├── .dockerignore             # Excluded files from Docker build context
-├── pyproject.toml            # Project metadata, dependencies, and tool settings
-├── uv.lock                   # Deterministic dependency lockfile
-├── .env.example              # Environment variables template
-├── .gitignore                # Source control ignore rules
-├── run.py                    # Application launch entrypoint
-└── README.md                 # Project documentation
+│   └── init-pgvector.sql
+├── .github/workflows/ci.yml
+├── Dockerfile
+├── docker-compose.yml
+├── pyproject.toml
+├── uv.lock
+├── .env.example
+└── run.py
 ```
 
----
+Blueprints remain the Flask HTTP organization mechanism. Future template surfaces (`public`, `chat`,
+`admin`) and any JSON/API endpoints can be added as real requirements arrive; Phase 0 does not create
+empty API modules merely for appearance.
 
-## 4. Local Development Setup
+## Requirements
 
-### 4.1 Prerequisites
-- Python 3.11 or higher
-- [uv](https://docs.astral.sh/uv/) (installed and available on PATH)
-- Docker & Docker Compose (optional for local running, required for containerized deployment)
+- Python 3.11+ (3.12 is used in Docker/CI)
+- `uv`
+- Docker + Docker Compose for PostgreSQL/pgvector runtime validation
 
-### 4.2 Installation & Dependency Synchronization
+## Local setup
 
-1. **Clone the repository:**
-   ```bash
-   git clone <repository-url>
-   cd medilab
-   ```
-
-2. **Sync dependencies with `uv`:**
-   ```bash
-   uv sync
-   ```
-   This creates a virtual environment at `.venv` and installs all locked dependencies.
-
-3. **Configure the environment:**
-   ```bash
-   cp .env.example .env
-   ```
-   Inspect and adjust `.env` as needed. For local development, safe default values are preconfigured.
-
----
-
-## 5. Running the Application
-
-### 5.1 Running Locally (outside Docker)
-
-To run the Flask application locally using `uv`:
 ```bash
+git clone https://github.com/omarbazooka/MediLab.git
+cd MediLab
+cp .env.example .env
+uv sync
+```
+
+The application environment is selected with `MEDILAB_ENV`:
+
+- `development`
+- `testing`
+- `production`
+
+`FLASK_ENV` is intentionally not used.
+
+## Run locally
+
+Start PostgreSQL/pgvector first if the application should report healthy database readiness:
+
+```bash
+docker compose up -d db
 uv run python run.py
 ```
-By default, the server listens on `http://127.0.0.1:5000`.
 
-### 5.2 Running via Docker Compose
+Then:
 
-Docker Compose manages both the `web` application and the `db` (PostgreSQL + pgvector) services.
-
-1. **Verify Docker Compose configuration:**
-   ```bash
-   docker compose config
-   ```
-
-2. **Build and start containers:**
-   ```bash
-   docker compose up -d --build
-   ```
-
-3. **Check container status:**
-   ```bash
-   docker compose ps
-   ```
-
-4. **View logs:**
-   ```bash
-   docker compose logs -f web
-   ```
-
-5. **Stop containers:**
-   ```bash
-   docker compose down
-   ```
-
----
-
-## 6. Health Probe Endpoint
-
-The application provides a machine-readable health check endpoint:
-
-```http
-GET /health
+```bash
+curl http://127.0.0.1:5000/health
 ```
 
-### Healthy Response (HTTP 200 OK)
-Returned when both the Flask process and database connectivity are operational:
+A healthy response is HTTP 200:
+
 ```json
 {
   "status": "ok",
   "database": "connected",
-  "timestamp": "2026-09-12T18:00:00.000000+00:00"
+  "timestamp": "..."
 }
 ```
 
-### Degraded Response (HTTP 503 Service Unavailable)
-Returned when the database probe fails, without leaking sensitive connection details, credentials, or stack traces:
+If the database cannot be reached, `/health` returns HTTP 503 with a controlled payload and does not
+expose the connection string or traceback.
+
+## Docker Compose
+
+The Compose stack contains only the Phase 0 services:
+
+- `web` — built from the single project `Dockerfile`
+- `db` — `pgvector/pgvector:0.8.6-pg16-bookworm`
+
+```bash
+docker compose config
+docker compose up -d --build
+docker compose ps
+docker compose logs -f web
+```
+
+Stop the stack with:
+
+```bash
+docker compose down
+```
+
+To remove the assessment database volume intentionally:
+
+```bash
+docker compose down -v
+```
+
+The source tree is mounted to `/app` for development. The container virtual environment is stored at
+`/opt/venv`, so the bind mount cannot hide or replace Linux dependencies with a host `.venv`.
+
+The Phase 0 image runs `run.py` for the local/demo environment. A dedicated production WSGI command
+should be selected when an actual deployment target is chosen; deployment-provider details are not
+part of the current assessment phase.
+
+## Environment variables
+
+| Variable | Purpose | Development default |
+|---|---|---|
+| `MEDILAB_ENV` | application environment | `development` |
+| `SECRET_KEY` | Flask signing/session secret | insecure local placeholder |
+| `DATABASE_URL` | application PostgreSQL URL | local `medilab` database |
+| `HOST` | local Flask bind host | `0.0.0.0` |
+| `PORT` | application/host port | `5000` |
+| `LOG_LEVEL` | structured log level | `INFO` |
+| `POSTGRES_DB` | Compose database | `medilab` |
+| `POSTGRES_USER` | Compose database user | `postgres` |
+| `POSTGRES_PASSWORD` | Compose database password | local-only placeholder |
+| `POSTGRES_PORT` | host PostgreSQL port | `5432` |
+| `TEST_DATABASE_URL` | real PostgreSQL integration-test URL | unset |
+
+Production configuration rejects known/default secret values, requires at least a 32-character secret,
+and requires a parseable PostgreSQL URL with a database name.
+
+## Tests and quality gates
+
+Fast unit suite (no Docker/PostgreSQL required):
+
+```bash
+uv run pytest tests/unit
+uv run ruff check .
+uv run ruff format --check .
+```
+
+Real PostgreSQL/pgvector integration tests require `TEST_DATABASE_URL`:
+
+```bash
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab \
+  uv run pytest -m postgres
+```
+
+On Windows PowerShell:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab"
+uv run pytest -m postgres
+```
+
+GitHub Actions runs both quality checks and a real Compose runtime flow: build/start containers, call
+`/health`, query the installed pgvector extension, run marked PostgreSQL tests, and tear the stack down.
+
+## Error and request handling
+
+HTTP errors return a consistent JSON envelope:
+
 ```json
 {
-  "status": "degraded",
-  "database": "disconnected",
-  "timestamp": "2026-09-12T18:00:00.000000+00:00"
+  "error": {
+    "code": "not_found",
+    "message": "The requested resource was not found."
+  }
 }
 ```
 
----
+Unexpected exceptions are logged server-side and returned to clients as a generic 500 response.
+Request correlation uses `X-Request-ID`; safe bounded IDs are preserved and invalid/oversized values are
+replaced with a generated UUID.
 
-## 7. Automated Testing & Code Quality
+## pgvector bootstrap vs migrations
 
-### 7.1 Running Automated Tests
-```bash
-uv run pytest
-```
-The test suite validates:
-- Flask application factory initialization and test config overrides
-- Request ID generation and header preservation
-- Configuration validation (rejecting insecure secrets and malformed database URIs in production)
-- Error handling (verifying structured JSON output and suppressing internal server tracebacks)
-- Health check contracts and database probe degradation handling
-- Database connectivity and pgvector extension query support
+`scripts/init-pgvector.sql` enables the extension when a fresh Compose PostgreSQL volume is initialized.
+It is Phase 0 infrastructure bootstrap only. Starting in Phase 1, Alembic migrations become the
+authoritative reproducible schema path, including extension/schema changes.
 
-### 7.2 Running Code Linting & Formatting
-```bash
-# Check code style and rules
-uv run ruff check .
+## Phase status semantics
 
-# Check code formatting
-uv run ruff format --check .
+Code existence alone is not considered completion:
 
-# Auto-apply format fixes
-uv run ruff format .
-```
+- `IMPLEMENTED` — code exists
+- `TESTED` — automated evidence passes
+- `LIVE_VERIFIED` — real runtime evidence proves the behavior
 
----
+Phase 0 should only be marked fully `LIVE_VERIFIED` after the Docker/PostgreSQL/pgvector runtime gate
+passes on the current commit.
 
-## 8. Environment Variables Reference
+## Next phase
 
-| Variable | Required in Production | Default (Dev) | Description |
-| :--- | :---: | :--- | :--- |
-| `FLASK_ENV` | No | `development` | Environment mode (`development`, `testing`, `production`). |
-| `SECRET_KEY` | **Yes** | `dev-insecure-...` | Cryptographic secret for signing sessions. Enforces ≥16 chars in production. |
-| `DATABASE_URL` | **Yes** | `postgresql+psycopg://...` | PostgreSQL connection string. Must start with `postgresql://` or `postgresql+psycopg://`. |
-| `PORT` | No | `5000` | Port for the HTTP server. |
-| `LOG_LEVEL` | No | `INFO` | Logging level (`DEBUG`, `INFO`, `WARNING`, `ERROR`, `CRITICAL`). |
-| `POSTGRES_DB` | No | `medilab` | PostgreSQL database name (used by Docker Compose). |
-| `POSTGRES_USER` | No | `postgres` | PostgreSQL username (used by Docker Compose). |
-| `POSTGRES_PASSWORD` | No | `postgres` | PostgreSQL password (used by Docker Compose). |
-
----
-
-## 9. Docker Architecture
-
-- **Single Custom Web Dockerfile:** The application utilizes exactly ONE multi-stage/slim `Dockerfile` based on `python:3.12-slim` utilizing `uv` for reproducible, deterministic builds and runs under an unprivileged `appuser` system user.
-- **PostgreSQL + pgvector:** Official `pgvector/pgvector:pg16` image is used for the database container.
-- **Automated Extension Provisioning:** On first boot, `./scripts/init-pgvector.sql` executes `CREATE EXTENSION IF NOT EXISTS vector;` to ensure vector capabilities are ready for subsequent phases.
-- **Persistent Volume:** Stored in named volume `postgres_data`.
-- **Hot-Reloading in Development:** Mounts the host directory `.:/app` into the web container.
-
----
-
-## 10. Future Roadmap & Limitations
-
-The following components are intentionally **deferred** to subsequent phases:
-- **Phase 1+ Data Models:** `LabTest`, `TestCategory`, `Package`, `Branch`, `Booking`, `Customer`, `KnowledgeDocument`, `KnowledgeChunk`.
-- **Phase 1+ RAG & Search:** Vector embeddings, cosine similarity search with pgvector, PostgreSQL Full-Text Search (tsvector), and chunking pipelines.
-- **Phase 1+ Agent Orchestration:** LangGraph state machine, tool-calling agents, clarification loops, and conversation persistence.
-- **Phase 1+ Booking Workflows:** Branch appointment scheduling, home-visit booking logic, status inquiry, and cancellation.
-- **Phase 1+ Administrative Dashboard:** Managed RAG CRUD, user authorization, and booking management UI.
+Phase 1 introduces SQLAlchemy business models, Alembic migrations, PostgreSQL constraints/indexes, and
+realistic seed data. RAG and LangGraph remain later phases.
