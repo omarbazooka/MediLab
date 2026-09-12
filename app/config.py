@@ -11,6 +11,7 @@ import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from dotenv import load_dotenv
 from sqlalchemy.engine import make_url
@@ -44,9 +45,7 @@ class BaseConfig:
             "DEBUG": cls.DEBUG,
             "TESTING": cls.TESTING,
             "SECRET_KEY": os.getenv("SECRET_KEY", cls.DEFAULT_SECRET_KEY),
-            "SQLALCHEMY_DATABASE_URI": os.getenv(
-                "DATABASE_URL", cls.DEFAULT_DATABASE_URL
-            ),
+            "SQLALCHEMY_DATABASE_URI": os.getenv("DATABASE_URL", cls.DEFAULT_DATABASE_URL),
             "SQLALCHEMY_TRACK_MODIFICATIONS": cls.SQLALCHEMY_TRACK_MODIFICATIONS,
             "SQLALCHEMY_ENGINE_OPTIONS": cls.SQLALCHEMY_ENGINE_OPTIONS.copy(),
             "LOG_LEVEL": os.getenv("LOG_LEVEL", cls.DEFAULT_LOG_LEVEL).upper(),
@@ -70,9 +69,7 @@ class DevelopmentConfig(BaseConfig):
     APP_ENV = "development"
     DEBUG = True
     DEFAULT_SECRET_KEY = "dev-insecure-secret-key-for-local-development-only-12345"
-    DEFAULT_DATABASE_URL = (
-        "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
-    )
+    DEFAULT_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
 
 
 class TestingConfig(BaseConfig):
@@ -114,8 +111,7 @@ class ProductionConfig(BaseConfig):
         secret_key = str(config.get("SECRET_KEY", "")).strip()
         if secret_key in cls._INSECURE_SECRET_KEYS or len(secret_key) < 32:
             raise ConfigurationError(
-                "Production requires a strong, non-default SECRET_KEY "
-                "(minimum 32 characters)."
+                "Production requires a strong, non-default SECRET_KEY (minimum 32 characters)."
             )
 
         database_url = str(config.get("SQLALCHEMY_DATABASE_URI", "")).strip()
@@ -125,18 +121,18 @@ class ProductionConfig(BaseConfig):
             )
 
         try:
+            # urllib validates authority syntax (including malformed IPv6 brackets),
+            # while SQLAlchemy validates/normalizes the database URL dialect.
+            split_url = urlsplit(database_url)
+            _ = split_url.hostname
             parsed_url = make_url(database_url)
         except (ArgumentError, ValueError) as exc:
             raise ConfigurationError("Production DATABASE_URL is malformed.") from exc
 
         if parsed_url.drivername not in {"postgresql", "postgresql+psycopg"}:
-            raise ConfigurationError(
-                "Production DATABASE_URL must use PostgreSQL with psycopg."
-            )
+            raise ConfigurationError("Production DATABASE_URL must use PostgreSQL with psycopg.")
         if not parsed_url.database:
-            raise ConfigurationError(
-                "Production DATABASE_URL must include a database name."
-            )
+            raise ConfigurationError("Production DATABASE_URL must include a database name.")
 
 
 CONFIG_MAP: dict[str, type[BaseConfig]] = {
