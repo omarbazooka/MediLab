@@ -1,4 +1,8 @@
-"""Unit tests for Flask application factory."""
+"""Unit tests for the Flask application factory and request middleware."""
+
+from __future__ import annotations
+
+import re
 
 from flask import Flask
 
@@ -7,27 +11,21 @@ from app.extensions import db, migrate
 
 
 def test_create_app_testing_environment() -> None:
-    """Application factory should initialize Flask app with TestingConfig."""
     app = create_app("testing")
+
     assert isinstance(app, Flask)
     assert app.config["TESTING"] is True
     assert app.config["DEBUG"] is False
+    assert app.config["APP_ENV"] == "testing"
     assert "health" in app.blueprints
 
 
 def test_create_app_with_test_overrides() -> None:
-    """Application factory should accept and apply test configuration overrides."""
-    app = create_app(
-        "testing",
-        test_config={
-            "CUSTOM_OVERRIDE": "test_value_123",
-        },
-    )
-    assert app.config["CUSTOM_OVERRIDE"] == "test_value_123"
+    app = create_app("testing", test_config={"CUSTOM_OVERRIDE": "test-value"})
+    assert app.config["CUSTOM_OVERRIDE"] == "test-value"
 
 
 def test_extensions_initialized() -> None:
-    """Application factory must bind extensions to the Flask app instance."""
     app = create_app("testing")
     assert "sqlalchemy" in app.extensions
     assert "migrate" in app.extensions
@@ -36,15 +34,20 @@ def test_extensions_initialized() -> None:
     assert migrate.db is db
 
 
-def test_request_id_middleware(client: Flask) -> None:
-    """Application should generate or preserve X-Request-ID on HTTP responses."""
-    # When no X-Request-ID is sent, application must generate one
+def test_request_id_is_generated(client) -> None:
     response = client.get("/health")
-    assert "X-Request-ID" in response.headers
-    generated_id = response.headers["X-Request-ID"]
-    assert len(generated_id) > 0
+    request_id = response.headers["X-Request-ID"]
+    assert re.fullmatch(r"[0-9a-f]{32}", request_id)
 
-    # When X-Request-ID is provided by client, application should preserve it
-    custom_id = "test-custom-request-id-456"
-    response_with_header = client.get("/health", headers={"X-Request-ID": custom_id})
-    assert response_with_header.headers.get("X-Request-ID") == custom_id
+
+def test_safe_request_id_is_preserved(client) -> None:
+    custom_id = "frontend:request-123.abc"
+    response = client.get("/health", headers={"X-Request-ID": custom_id})
+    assert response.headers["X-Request-ID"] == custom_id
+
+
+def test_unsafe_or_oversized_request_id_is_replaced(client) -> None:
+    response = client.get("/health", headers={"X-Request-ID": "x" * 512})
+    request_id = response.headers["X-Request-ID"]
+    assert request_id != "x" * 512
+    assert re.fullmatch(r"[0-9a-f]{32}", request_id)
