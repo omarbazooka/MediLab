@@ -1,46 +1,35 @@
-# Single production-minded Dockerfile for MediLab AI Web Application
+# Single custom image for the MediLab AI Flask web application.
 FROM python:3.12-slim
 
-# Prevent Python from writing bytecode and buffer stdout/stderr
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    UV_LINK_MODE=copy
+    UV_LINK_MODE=copy \
+    UV_PROJECT_ENVIRONMENT=/opt/venv \
+    PATH="/opt/venv/bin:$PATH"
 
-# Install uv binary from official distribution
-COPY --from=ghcr.io/astral-sh/uv:0.10.4 /uv /bin/uv
+# Keep uv pinned for reproducible image builds.
+COPY --from=ghcr.io/astral-sh/uv:0.12.13 /uv /bin/uv
 
-# Create non-root system user and group for application security
-RUN groupadd -r appuser && useradd -r -g appuser -d /app -s /sbin/nologin appuser
+RUN groupadd --system appuser \
+    && useradd --system --gid appuser --home-dir /app --shell /usr/sbin/nologin appuser
 
 WORKDIR /app
 
-# Ensure non-root ownership of workdir
-RUN chown appuser:appuser /app
-
-# Copy dependency definition files first to optimize Docker layer caching
+# Resolve dependencies before copying source so normal source edits reuse this layer.
 COPY pyproject.toml uv.lock ./
-
-# Install project dependencies without project root package
 RUN uv sync --frozen --no-dev --no-install-project
 
-# Copy application source code
-COPY . .
+COPY --chown=appuser:appuser app ./app
+COPY --chown=appuser:appuser run.py ./run.py
 
-# Complete virtual environment setup with project files
-RUN uv sync --frozen --no-dev && chown -R appuser:appuser /app
+# There is no installable project package yet; this verifies the locked runtime env.
+RUN uv sync --frozen --no-dev
 
-# Activate virtualenv inside container PATH
-ENV PATH="/app/.venv/bin:$PATH"
-
-# Switch to non-root user
 USER appuser
-
-# Expose default Flask service port
 EXPOSE 5000
 
-# Container healthcheck probe using standard library
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health')" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:5000/health', timeout=3)" || exit 1
 
-# Start the application
+# Phase 0/demo entrypoint. A production WSGI server can replace this command at deploy time.
 CMD ["python", "run.py"]
