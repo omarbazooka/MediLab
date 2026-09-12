@@ -1,4 +1,4 @@
-name: Phase 0 QA
+name: MediLab QA
 
 on:
   push:
@@ -34,6 +34,11 @@ jobs:
     name: Docker, PostgreSQL and pgvector
     runs-on: ubuntu-latest
     needs: quality
+    # The web container must use the Compose service hostname. This is an
+    # ephemeral CI database only; production/development DATABASE_URL remains
+    # supplied externally (Supabase for MediLab).
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/medilab
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -66,8 +71,15 @@ jobs:
             psql -U postgres -d medilab -v ON_ERROR_STOP=1 \
             -c "SELECT extversion FROM pg_extension WHERE extname = 'vector';" \
             -c "SELECT '[1,2,3]'::vector;"
+      - name: Apply database migrations
+        env:
+          DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab
+        run: uv run flask db upgrade
       - name: Run real PostgreSQL integration tests
         env:
+          # Keep the app DB variable empty so the test-isolation guard evaluates
+          # only the explicit disposable TEST_DATABASE_URL below.
+          DATABASE_URL: ""
           TEST_DATABASE_URL: postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab
         run: uv run pytest -m postgres
       - name: Show container status

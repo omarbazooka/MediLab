@@ -1,233 +1,260 @@
 # MediLab AI
 
 **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-**Current scope:** Phase 0 — Project Foundation
+**Current scope:** Phase 1 — ORM, Migrations & Seed Data  
+**Target deadline:** 20 September 2026
 
-MediLab AI is a Flask-based assessment project that will later provide test/package discovery,
-RAG-backed laboratory information, persistent conversational context, and real booking actions.
-Phase 0 intentionally contains only the application/infrastructure foundation.
+MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 1 establishes the deterministic PostgreSQL persistence and business-service foundation that later RAG, LangGraph, customer UI, and admin phases will use.
 
-## Phase 0 scope
+## Phase 1 status
 
-Implemented in this phase:
+Implemented and locally/live verified on the Phase 1 branch:
 
-- Flask application factory and centralized blueprint registration
-- Environment-driven configuration with strict production validation
-- Flask-SQLAlchemy and Flask-Migrate extension wiring
-- Structured JSON application logging with bounded request correlation IDs
-- Controlled HTTP error responses with safe 500 handling
-- `GET /health` process/database readiness probe
-- PostgreSQL + pgvector infrastructure through Docker Compose
-- One custom web `Dockerfile`
-- `uv` dependency management and lockfile
-- Pytest unit/integration structure and Ruff quality gates
-- GitHub Actions QA for unit checks plus real Docker/PostgreSQL/pgvector runtime validation
+- 15 SQLAlchemy 2.x domain models
+- Supabase-hosted PostgreSQL as the durable application database
+- disposable Docker PostgreSQL 16 + pgvector for migration/integration testing
+- Alembic migrations through revision `44cef7a277a7`
+- pgvector `VECTOR(384)` schema for `intfloat/multilingual-e5-small`
+- PostgreSQL FTS `TSVECTOR` maintenance trigger + GIN index
+- deterministic test/package/branch/availability services
+- transactional branch and HOME booking service
+- slot row locking, idempotency, controlled rollback, cancellation locking
+- visible `SearchSnapshot` persistence with cross-session active-snapshot protection
+- deterministic, rerunnable fictional seed data
 
-Not implemented yet: business models, migrations/schema, seed data, LangGraph, RAG, bookings,
-customer chat, or the admin dashboard. Those belong to later phases.
+Not implemented yet: RAG runtime/retrieval, LangGraph orchestration, customer chat UI, admin dashboard, and Meta Messenger.
 
-## Architecture
+## Core Phase 1 models
 
-Phase 0 keeps a modular Flask monolith and avoids speculative layers.
+- `TestCategory`, `LabTest`
+- `Package`, `PackageTest`
+- `Branch`, `AvailabilitySlot`
+- `Customer`
+- `Booking`, `BookingItem`, `HomeVisit`
+- `KnowledgeDocument`, `KnowledgeChunk`
+- `ConversationSession`, `ChatMessage`, `SearchSnapshot`
 
-```text
-medilab-ai/
-├── app/
-│   ├── __init__.py              # application factory / wiring
-│   ├── config.py                # environment resolution + validation
-│   ├── errors.py                # centralized HTTP error handling
-│   ├── extensions.py            # Flask extension singletons
-│   ├── logging.py               # structured JSON logging
-│   ├── request_ids.py           # bounded request-correlation middleware
-│   └── blueprints/
-│       ├── __init__.py          # centralized blueprint registry
-│       └── health/
-│           ├── __init__.py
-│           └── routes.py        # operational /health endpoint
-├── tests/
-│   ├── conftest.py
-│   ├── unit/
-│   └── integration/             # real PostgreSQL tests are marked `postgres`
-├── scripts/
-│   └── init-pgvector.sql
-├── .github/workflows/ci.yml
-├── Dockerfile
-├── docker-compose.yml
-├── pyproject.toml
-├── uv.lock
-├── .env.example
-└── run.py
-```
+## Locked database decisions
 
-Blueprints remain the Flask HTTP organization mechanism. Future template surfaces (`public`, `chat`,
-`admin`) and any JSON/API endpoints can be added as real requirements arrive; Phase 0 does not create
-empty API modules merely for appearance.
+Detailed decisions are recorded in `docs/decisions.md`.
 
-## Requirements
+- **Durable app DB:** Supabase-hosted PostgreSQL via `DATABASE_URL`
+- **Disposable test DB:** Docker PostgreSQL + pgvector at `localhost:5432/medilab` via `TEST_DATABASE_URL`
+- **Embedding schema contract:** `intfloat/multilingual-e5-small`, `VECTOR(384)`
+- **HOME visit:** separate one-to-one `home_visits` table
+- **Authoritative booking slot:** `Booking.availability_slot_id`
+- **HOME/BRANCH slot uniqueness:** PostgreSQL partial unique indexes
+- **FTS maintenance:** migration-managed trigger using `to_tsvector('simple', content)`
+- **Customer resolution:** unique phone number
 
-- Python 3.11+ (3.12 is used in Docker/CI)
-- `uv`
-- Docker + Docker Compose for PostgreSQL/pgvector runtime validation
+## Environment
 
-## Local setup
+Copy the example file and fill only local credentials/secrets:
 
 ```bash
-git clone https://github.com/omarbazooka/MediLab.git
-cd MediLab
 cp .env.example .env
-uv sync
 ```
 
-The application environment is selected with `MEDILAB_ENV`:
+Required application variables:
 
-- `development`
-- `testing`
-- `production`
+```dotenv
+MEDILAB_ENV=development
+SECRET_KEY=<secure-local-secret>
+DATABASE_URL=postgresql+psycopg://<supabase-user>:<password>@<host>:5432/postgres?sslmode=require
+HOST=0.0.0.0
+PORT=5000
+LOG_LEVEL=INFO
+TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/medilab
+```
 
-`FLASK_ENV` is intentionally not used.
+Do not commit `.env`, Supabase passwords, service-role keys, or connection strings containing real credentials.
 
-## Run locally
+## Install
 
-Start PostgreSQL/pgvector first if the application should report healthy database readiness:
+```bash
+uv sync --frozen
+```
+
+## Disposable PostgreSQL / pgvector test database
+
+Start only the disposable database service:
 
 ```bash
 docker compose up -d db
-uv run python run.py
-```
-
-Then:
-
-```bash
-curl http://127.0.0.1:5000/health
-```
-
-A healthy response is HTTP 200:
-
-```json
-{
-  "status": "ok",
-  "database": "connected",
-  "timestamp": "..."
-}
-```
-
-If the database cannot be reached, `/health` returns HTTP 503 with a controlled payload and does not
-expose the connection string or traceback.
-
-## Docker Compose
-
-The Compose stack contains only the Phase 0 services:
-
-- `web` — built from the single project `Dockerfile`
-- `db` — `pgvector/pgvector:0.8.6-pg16-bookworm`
-
-```bash
-docker compose config
-docker compose up -d --build
 docker compose ps
-docker compose logs -f web
 ```
 
-Stop the stack with:
+The Compose database is assessment/test infrastructure, not the durable application source of truth.
+
+## Application database migration
+
+For the real MediLab Supabase database:
 
 ```bash
-docker compose down
+uv run flask db current
+uv run flask db upgrade
+uv run flask db current
 ```
 
-To remove the assessment database volume intentionally:
+Current Phase 1 migration head:
+
+```text
+44cef7a277a7
+```
+
+### Clean migration rebuild — disposable DB only
+
+Never run destructive downgrade/rebuild checks against Supabase.
+
+PowerShell example:
+
+```powershell
+$env:DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
+uv run flask db downgrade base
+uv run flask db upgrade
+Remove-Item Env:DATABASE_URL
+```
+
+A clean disposable rebuild has been verified through:
+
+```text
+base -> 7f6eb611e707 -> 44cef7a277a7
+```
+
+## Seed data
+
+Run against the currently configured `DATABASE_URL`:
 
 ```bash
-docker compose down -v
+uv run python scripts/seed_db.py
 ```
 
-The source tree is mounted to `/app` for development. The container virtual environment is stored at
-`/opt/venv`, so the bind mount cannot hide or replace Linux dependencies with a host `.venv`.
+The current fictional seed baseline is:
 
-The Phase 0 image runs `run.py` for the local/demo environment. A dedicated production WSGI command
-should be selected when an actual deployment target is chosen; deployment-provider details are not
-part of the current assessment phase.
+- 5 categories
+- 11 lab tests
+- 3 packages
+- 4 Cairo branches
+- 209 availability slots covering 15–25 September 2026
+- 4 non-clinical knowledge documents with `index_status='PENDING'`
 
-## Environment variables
+Running the seed twice is verified to keep the same entity counts without duplicate rows.
 
-| Variable | Purpose | Development default |
-|---|---|---|
-| `MEDILAB_ENV` | application environment | `development` |
-| `SECRET_KEY` | Flask signing/session secret | insecure local placeholder |
-| `DATABASE_URL` | application PostgreSQL URL | local `medilab` database |
-| `HOST` | local Flask bind host | `0.0.0.0` |
-| `PORT` | application/host port | `5000` |
-| `LOG_LEVEL` | structured log level | `INFO` |
-| `POSTGRES_DB` | Compose database | `medilab` |
-| `POSTGRES_USER` | Compose database user | `postgres` |
-| `POSTGRES_PASSWORD` | Compose database password | local-only placeholder |
-| `POSTGRES_PORT` | host PostgreSQL port | `5432` |
-| `TEST_DATABASE_URL` | real PostgreSQL integration-test URL | unset |
+## Database verification
 
-Production configuration rejects known/default secret values, requires at least a 32-character secret,
-and requires a parseable PostgreSQL URL with a database name.
+```bash
+uv run python scripts/verify_db.py
+```
 
-## Tests and quality gates
+The verification script checks the configured database for:
 
-Fast unit suite (no Docker/PostgreSQL required):
+- PostgreSQL connectivity
+- pgvector extension
+- Alembic revision `44cef7a277a7`
+- 15 core tables
+- active snapshot-integrity trigger
+- strengthened HOME booking constraint
+- seed counts
+
+## Business-service behavior
+
+`BookingService` is deterministic and independently testable; it is not yet a LangGraph tool.
+
+Creation behavior includes:
+
+1. validate required input
+2. resolve and lock the selected availability slot
+3. validate visit type/branch/capacity
+4. resolve/create customer
+5. validate selected tests/packages and snapshot prices
+6. reserve capacity transactionally
+7. persist booking/items and optional `HomeVisit`
+8. commit before returning the real booking reference
+
+Booking references use:
+
+```text
+MLB-YYYYMMDD-XXXXXXXX
+```
+
+Cancellation locks the booking row before status evaluation and locks the authoritative slot before releasing capacity, preventing a concurrent double-decrement.
+
+## Tests
+
+Fast unit tests:
 
 ```bash
 uv run pytest tests/unit
+```
+
+Verified result on the Phase 1 QA commit:
+
+```text
+43 passed
+```
+
+Real PostgreSQL integration tests:
+
+```powershell
+$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
+uv run pytest -m postgres -v
+```
+
+Verified result:
+
+```text
+15 passed, 43 deselected
+```
+
+Full suite:
+
+```bash
+uv run pytest
+```
+
+Verified result:
+
+```text
+58 passed
+```
+
+Quality gates:
+
+```bash
 uv run ruff check .
 uv run ruff format --check .
 ```
 
-Real PostgreSQL/pgvector integration tests require `TEST_DATABASE_URL`:
+Verified result:
 
-```bash
-TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab \
-  uv run pytest -m postgres
+```text
+All checks passed
+51 files already formatted
 ```
 
-On Windows PowerShell:
+## CI
 
-```powershell
-$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@127.0.0.1:5432/medilab"
-uv run pytest -m postgres
-```
+`.github/workflows/ci.yml` contains two gates:
 
-GitHub Actions runs both quality checks and a real Compose runtime flow: build/start containers, call
-`/health`, query the installed pgvector extension, run marked PostgreSQL tests, and tear the stack down.
+- unit tests + Ruff
+- Docker/PostgreSQL/pgvector runtime + migrations + PostgreSQL integration tests
 
-## Error and request handling
+The Docker job explicitly injects an ephemeral local `DATABASE_URL` for the web container; it does not use Supabase in CI.
 
-HTTP errors return a consistent JSON envelope:
+At the time of Phase 1 QA, GitHub-hosted Actions runs are failing before any step is assigned (`steps=[]`, Docker job skipped). This is treated as an external runner/startup issue, not as passing CI evidence. Local Docker/PostgreSQL and Supabase verification are the current runtime evidence.
 
-```json
-{
-  "error": {
-    "code": "not_found",
-    "message": "The requested resource was not found."
-  }
-}
-```
+## Healthcare boundary
 
-Unexpected exceptions are logged server-side and returned to clients as a generic 500 response.
-Request correlation uses `X-Request-ID`; safe bounded IDs are preserved and invalid/oversized values are
-replaced with a generated UUID.
-
-## pgvector bootstrap vs migrations
-
-`scripts/init-pgvector.sql` enables the extension when a fresh Compose PostgreSQL volume is initialized.
-It is Phase 0 infrastructure bootstrap only. Starting in Phase 1, Alembic migrations become the
-authoritative reproducible schema path, including extension/schema changes.
+MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 1 seed knowledge is limited to approved customer-service/preparation/process information.
 
 ## Phase status semantics
 
-Code existence alone is not considered completion:
+- `IMPLEMENTED`: code exists
+- `TESTED`: automated evidence passes
+- `LIVE_VERIFIED`: real runtime/database evidence proves the behavior
 
-- `IMPLEMENTED` — code exists
-- `TESTED` — automated evidence passes
-- `LIVE_VERIFIED` — real runtime evidence proves the behavior
-
-Phase 0 should only be marked fully `LIVE_VERIFIED` after the Docker/PostgreSQL/pgvector runtime gate
-passes on the current commit.
+Phase 1 should only be marked complete after independent QA accepts the current PR/commit.
 
 ## Next phase
 
-Phase 1 introduces SQLAlchemy business models, Alembic migrations, PostgreSQL constraints/indexes, and
-realistic seed data. RAG and LangGraph remain later phases.
+Phase 2 implements RAG independently of LangGraph: managed knowledge lifecycle, chunking/embeddings, pgvector + PostgreSQL FTS hybrid retrieval, RRF, retrieval grading, bounded retry, and CRUD synchronization.

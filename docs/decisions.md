@@ -1,0 +1,118 @@
+# MediLab AI — Architecture Decisions Log
+
+This document records authoritative technical decisions that are locked for the current implementation.
+
+---
+
+## Decision 1: Durable application DB vs. disposable test DB
+
+- **Status:** LOCKED
+- **Durable application database:** Supabase-hosted PostgreSQL via `DATABASE_URL`.
+- **Persistence path:** `Flask -> Services -> Repositories -> SQLAlchemy -> PostgreSQL`.
+- **Disposable test database:** Docker PostgreSQL 16 + pgvector using `pgvector/pgvector:0.8.6-pg16-bookworm`.
+- **Current local test endpoint:** `localhost:5432/medilab` via `TEST_DATABASE_URL`.
+- **Safety rule:** integration tests and destructive migration rebuild checks must never target the Supabase application database. The pytest guard rejects Supabase test URLs and application/test URL collisions.
+
+Supabase is used as hosted PostgreSQL only; Phase 1 does not add Supabase-specific application SDKs or ORM abstractions.
+
+---
+
+## Decision 2: Embedding model and vector dimension
+
+- **Status:** LOCKED
+- **Model:** `intfloat/multilingual-e5-small`
+- **Vector dimension:** `384`
+- **Schema mapping:** `KnowledgeChunk.embedding -> VECTOR(384)`.
+
+Phase 1 locks storage only. Embedding generation and retrieval belong to Phase 2.
+
+---
+
+## Decision 3: Separate one-to-one HomeVisit
+
+- **Status:** LOCKED
+- **Decision:** HOME-only address/process fields live in a separate `home_visits` table with a unique FK to `bookings.id`.
+- **Status domain:** `REQUESTED`, `SCHEDULED`, `DISPATCHED`, `SAMPLE_COLLECTED`, `CANCELLED`.
+
+This keeps branch bookings free from HOME-only nullable fields and gives the later dashboard a clear domain boundary.
+
+---
+
+## Decision 4: Authoritative availability-slot reference
+
+- **Status:** LOCKED
+- **Decision:** `Booking.availability_slot_id` references the exact reserved `AvailabilitySlot` with `ON DELETE RESTRICT`.
+- **Historical snapshots:** `scheduled_date`, `scheduled_time`, `branch_id`, and `visit_type` remain on the Booking record as booking-time facts.
+
+Cancellation uses the authoritative slot reference to release the correct capacity.
+
+---
+
+## Decision 5: AvailabilitySlot partial uniqueness
+
+- **Status:** LOCKED
+- **BRANCH slots:** unique `(branch_id, date, time)` where `visit_type = 'BRANCH'`.
+- **HOME pool slots:** unique `(date, time)` where `visit_type = 'HOME' AND branch_id IS NULL`.
+
+This avoids PostgreSQL NULL semantics allowing duplicate HOME pool slots.
+
+---
+
+## Decision 6: PostgreSQL FTS maintenance
+
+- **Status:** LOCKED
+- **Storage:** `KnowledgeChunk.search_vector` is PostgreSQL `TSVECTOR`.
+- **Maintenance:** migration-managed trigger updates it from `content` on INSERT/UPDATE.
+- **Configuration:** `simple` text-search dictionary for the current Arabic/English MVP.
+- **Index:** GIN on `search_vector`.
+
+Phase 2 owns lexical retrieval/ranking/fusion; Phase 1 only guarantees correct storage/index maintenance.
+
+---
+
+## Decision 7: Customer phone uniqueness
+
+- **Status:** LOCKED
+- **Decision:** `Customer.phone` is unique and indexed for deterministic customer resolution in the MVP.
+- **Concurrency:** repository logic uses a nested transaction/savepoint and re-query to resolve concurrent create races without returning a duplicate customer row.
+
+---
+
+## Decision 8: Foreign-key cascade policy
+
+- **Status:** LOCKED
+- **Rule:** no blanket cascade deletion.
+- **Child-owned cascades:** `KnowledgeDocument -> KnowledgeChunk`, `ConversationSession -> ChatMessage/SearchSnapshot`, `Booking -> BookingItem/HomeVisit`, `Package -> PackageTest`.
+- **Historical/business references:** customer, branch, authoritative slot, lab-test/package booking references use `RESTRICT` or `SET NULL` where appropriate.
+
+---
+
+## Decision 9: ConversationSession / SearchSnapshot circular FK and ownership
+
+- **Status:** LOCKED
+- `SearchSnapshot.session_id -> ConversationSession.session_id` stores ownership.
+- `ConversationSession.active_snapshot_id -> SearchSnapshot.id` stores the current visible snapshot.
+- The circular FK is created after both tables exist; ORM wiring uses `use_alter=True` / `post_update=True` where required.
+- Cross-session active-snapshot assignment is rejected at repository/model level and by the PostgreSQL trigger `trg_conversation_sessions_snapshot_integrity`.
+
+Visible ordinal references in later phases must resolve against exactly this active persisted snapshot.
+
+---
+
+## Decision 10: Booking concurrency and idempotency
+
+- **Status:** LOCKED
+- Slot reservation locks the selected `AvailabilitySlot` row before capacity mutation.
+- `Booking.idempotency_key` is unique and concurrency recovery returns the existing booking instead of creating a duplicate.
+- Cancellation locks the Booking row before status evaluation, then locks/releases the authoritative slot exactly once.
+- Booking references use `MLB-YYYYMMDD-XXXXXXXX` with bounded collision retry and database uniqueness as the final guard.
+
+---
+
+## Decision 11: Phase 1 migration head
+
+- **Status:** LOCKED FOR CURRENT PHASE 1 QA
+- Initial schema: `7f6eb611e707`.
+- Forward QA hardening migration: `44cef7a277a7`.
+
+All future schema changes must be additive Alembic migrations; do not rewrite already-applied Supabase migration history.

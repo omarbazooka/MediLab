@@ -28,16 +28,13 @@ services:
     environment:
       MEDILAB_ENV: ${MEDILAB_ENV:-development}
       SECRET_KEY: ${SECRET_KEY:-dev-insecure-secret-key-for-local-development-only-12345}
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@db:5432/${POSTGRES_DB:-medilab}
+      DATABASE_URL: ${DATABASE_URL}
       LOG_LEVEL: ${LOG_LEVEL:-INFO}
       HOST: 0.0.0.0
       PORT: 5000
       UV_PROJECT_ENVIRONMENT: /opt/venv
     volumes:
       - .:/app
-    depends_on:
-      db:
-        condition: service_healthy
 
 volumes:
   postgres_data:
