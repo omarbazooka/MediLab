@@ -1,80 +1,118 @@
 # MediLab AI — Architecture Decisions Log
 
-This document records the authoritative, locked technical decisions for MediLab AI.
+This document records authoritative technical decisions that are locked for the current implementation.
 
 ---
 
-## Decision 1: Durable Application Database vs. Disposable Test Database
+## Decision 1: Durable application DB vs. disposable test DB
+
 - **Status:** LOCKED
-- **Decision:**
-  - **Durable Application Database:** Hosted **Supabase PostgreSQL 17** via `DATABASE_URL`. Supabase is utilized strictly as hosted PostgreSQL; no Supabase-specific client SDKs or proprietary ORM extensions are introduced. Standard persistence flows: `Flask -> Services -> Repositories -> SQLAlchemy -> PostgreSQL`.
-  - **Disposable Test Database:** Containerized **PostgreSQL 16 + pgvector** (`pgvector/pgvector:0.8.6-pg16-bookworm`) via `TEST_DATABASE_URL` running on port 5433 (or dedicated local test container).
-  - **Safety Rule:** Integration tests, migration rebuilds, and destructive fixtures MUST strictly target `TEST_DATABASE_URL`. Destructive operations are actively guarded and will fail immediately if `TEST_DATABASE_URL == DATABASE_URL`.
+- **Durable application database:** Supabase-hosted PostgreSQL via `DATABASE_URL`.
+- **Persistence path:** `Flask -> Services -> Repositories -> SQLAlchemy -> PostgreSQL`.
+- **Disposable test database:** Docker PostgreSQL 16 + pgvector using `pgvector/pgvector:0.8.6-pg16-bookworm`.
+- **Current local test endpoint:** `localhost:5432/medilab` via `TEST_DATABASE_URL`.
+- **Safety rule:** integration tests and destructive migration rebuild checks must never target the Supabase application database. The pytest guard rejects Supabase test URLs and application/test URL collisions.
+
+Supabase is used as hosted PostgreSQL only; Phase 1 does not add Supabase-specific application SDKs or ORM abstractions.
 
 ---
 
-## Decision 2: Embedding Model and Vector Dimension
+## Decision 2: Embedding model and vector dimension
+
 - **Status:** LOCKED
 - **Model:** `intfloat/multilingual-e5-small`
-- **Vector Dimension:** `384`
-- **Schema Mapping:** `KnowledgeChunk.embedding` is explicitly typed as `VECTOR(384)` using `pgvector.sqlalchemy.Vector(384)`.
-- **Rationale:** Supports bilingual Arabic and English queries efficiently with low storage and memory overhead compared to larger models.
+- **Vector dimension:** `384`
+- **Schema mapping:** `KnowledgeChunk.embedding -> VECTOR(384)`.
+
+Phase 1 locks storage only. Embedding generation and retrieval belong to Phase 2.
 
 ---
 
-## Decision 3: Separate 1-to-1 HomeVisit Table
+## Decision 3: Separate one-to-one HomeVisit
+
 - **Status:** LOCKED
-- **Decision:** Home visit requests are persisted in a dedicated `home_visits` table with a unique foreign key to `bookings.id` (1-to-1 relationship).
-- **Rationale:**
-  - Prevents nullable address/area fields on standard branch bookings.
-  - Clear administrative distinction between clinical branch visits and home sample collections.
-  - Bounded status workflow: `REQUESTED`, `SCHEDULED`, `DISPATCHED`, `SAMPLE_COLLECTED`, `CANCELLED`.
+- **Decision:** HOME-only address/process fields live in a separate `home_visits` table with a unique FK to `bookings.id`.
+- **Status domain:** `REQUESTED`, `SCHEDULED`, `DISPATCHED`, `SAMPLE_COLLECTED`, `CANCELLED`.
+
+This keeps branch bookings free from HOME-only nullable fields and gives the later dashboard a clear domain boundary.
 
 ---
 
-## Decision 4: Authoritative Availability Slot Reference
+## Decision 4: Authoritative availability-slot reference
+
 - **Status:** LOCKED
-- **Decision:** `Booking.availability_slot_id` (`ForeignKey("availability_slots.id", ondelete="RESTRICT")`) is the authoritative source for the reserved slot.
-- **Audit Snapshots:** `Booking.scheduled_date`, `Booking.scheduled_time`, `Booking.branch_id`, and `Booking.visit_type` are retained directly on `Booking` as immutable audit snapshots reflecting the state when booked.
+- **Decision:** `Booking.availability_slot_id` references the exact reserved `AvailabilitySlot` with `ON DELETE RESTRICT`.
+- **Historical snapshots:** `scheduled_date`, `scheduled_time`, `branch_id`, and `visit_type` remain on the Booking record as booking-time facts.
+
+Cancellation uses the authoritative slot reference to release the correct capacity.
 
 ---
 
-## Decision 5: AvailabilitySlot Partial Uniqueness Constraints
+## Decision 5: AvailabilitySlot partial uniqueness
+
 - **Status:** LOCKED
-- **Decision:**
-  - `BRANCH` slots enforce uniqueness across `(branch_id, date, time)` where `visit_type = 'BRANCH'`.
-  - `HOME` slots enforce pool uniqueness across `(date, time)` where `visit_type = 'HOME' AND branch_id IS NULL`.
-- **Rationale:** PostgreSQL partial unique indexes avoid ambiguity around SQL NULL semantics in multi-column unique constraints.
+- **BRANCH slots:** unique `(branch_id, date, time)` where `visit_type = 'BRANCH'`.
+- **HOME pool slots:** unique `(date, time)` where `visit_type = 'HOME' AND branch_id IS NULL`.
+
+This avoids PostgreSQL NULL semantics allowing duplicate HOME pool slots.
 
 ---
 
-## Decision 6: PostgreSQL Full-Text Search (FTS) Maintenance Strategy
+## Decision 6: PostgreSQL FTS maintenance
+
 - **Status:** LOCKED
-- **Decision:** `KnowledgeChunk.search_vector` is maintained automatically via a migration-managed PostgreSQL trigger using the `simple` text search dictionary:
-  ```sql
-  NEW.search_vector := to_tsvector('simple', coalesce(NEW.content, ''));
-  ```
-  Indexed with a GIN index:
-  ```sql
-  CREATE INDEX ix_knowledge_chunks_search_vector ON knowledge_chunks USING gin (search_vector);
-  ```
-- **Rationale:** The `simple` dictionary provides unbiased tokenization for bilingual Arabic and English healthcare content without English-only stemming distortions. The database trigger guarantees that any insert or update to `content` immediately updates `search_vector`.
+- **Storage:** `KnowledgeChunk.search_vector` is PostgreSQL `TSVECTOR`.
+- **Maintenance:** migration-managed trigger updates it from `content` on INSERT/UPDATE.
+- **Configuration:** `simple` text-search dictionary for the current Arabic/English MVP.
+- **Index:** GIN on `search_vector`.
+
+Phase 2 owns lexical retrieval/ranking/fusion; Phase 1 only guarantees correct storage/index maintenance.
 
 ---
 
-## Decision 7: Customer Resolution & Phone Uniqueness
+## Decision 7: Customer phone uniqueness
+
 - **Status:** LOCKED
-- **Decision:** `Customer.phone` is constrained as `unique=True, index=True`.
-- **Rationale:** Ensures deterministic, unambiguous `get_or_create` customer resolution across multi-turn booking and consultation flows.
+- **Decision:** `Customer.phone` is unique and indexed for deterministic customer resolution in the MVP.
+- **Concurrency:** repository logic uses a nested transaction/savepoint and re-query to resolve concurrent create races without returning a duplicate customer row.
 
 ---
 
-## Decision 8: Foreign Key Cascade Strategy
+## Decision 8: Foreign-key cascade policy
+
 - **Status:** LOCKED
-- **Decision:** Blanket `ON DELETE CASCADE` is strictly prohibited. `CASCADE` is permitted only for true child-owned entities (`KnowledgeDocument -> KnowledgeChunk`, `ConversationSession -> ChatMessage/SearchSnapshot`, `Booking -> BookingItem/HomeVisit`, `Package -> PackageTest`). All historical business references (`LabTest -> Category`, `Booking -> Customer/Branch/Slot`, etc.) enforce `ON DELETE RESTRICT` or `ON DELETE SET NULL`.
+- **Rule:** no blanket cascade deletion.
+- **Child-owned cascades:** `KnowledgeDocument -> KnowledgeChunk`, `ConversationSession -> ChatMessage/SearchSnapshot`, `Booking -> BookingItem/HomeVisit`, `Package -> PackageTest`.
+- **Historical/business references:** customer, branch, authoritative slot, lab-test/package booking references use `RESTRICT` or `SET NULL` where appropriate.
 
 ---
 
-## Decision 9: Circular Foreign Key Resolution
+## Decision 9: ConversationSession / SearchSnapshot circular FK and ownership
+
 - **Status:** LOCKED
-- **Decision:** The circular reference between `SearchSnapshot.session_id` and `ConversationSession.active_snapshot_id` is resolved using `use_alter=True` on `active_snapshot_id` with `post_update=True` in the SQLAlchemy relationship.
+- `SearchSnapshot.session_id -> ConversationSession.session_id` stores ownership.
+- `ConversationSession.active_snapshot_id -> SearchSnapshot.id` stores the current visible snapshot.
+- The circular FK is created after both tables exist; ORM wiring uses `use_alter=True` / `post_update=True` where required.
+- Cross-session active-snapshot assignment is rejected at repository/model level and by the PostgreSQL trigger `trg_conversation_sessions_snapshot_integrity`.
+
+Visible ordinal references in later phases must resolve against exactly this active persisted snapshot.
+
+---
+
+## Decision 10: Booking concurrency and idempotency
+
+- **Status:** LOCKED
+- Slot reservation locks the selected `AvailabilitySlot` row before capacity mutation.
+- `Booking.idempotency_key` is unique and concurrency recovery returns the existing booking instead of creating a duplicate.
+- Cancellation locks the Booking row before status evaluation, then locks/releases the authoritative slot exactly once.
+- Booking references use `MLB-YYYYMMDD-XXXXXXXX` with bounded collision retry and database uniqueness as the final guard.
+
+---
+
+## Decision 11: Phase 1 migration head
+
+- **Status:** LOCKED FOR CURRENT PHASE 1 QA
+- Initial schema: `7f6eb611e707`.
+- Forward QA hardening migration: `44cef7a277a7`.
+
+All future schema changes must be additive Alembic migrations; do not rewrite already-applied Supabase migration history.
