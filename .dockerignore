@@ -1,0 +1,44 @@
+# Git repository
+.git/
+.gitignore
+
+# Python cache & build files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+env/
+venv/
+
+# Environment and secrets
+.env
+.env.*
+*.pem
+*.key
+
+# Tests and coverage
+tests/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Quality tool caches
+.ruff_cache/
+.mypy_cache/
+
+# IDE and OS files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Documentation
+docs/
+*.md
