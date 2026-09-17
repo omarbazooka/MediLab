@@ -55,12 +55,21 @@ def test_context_builder_enforces_word_budget() -> None:
         _chunk(2, passage_50_words),
         _chunk(3, passage_50_words),
     ]
-    # Budget of 75 words allows chunk 1 (50 words), but rejects chunk 2 (would be 100 words)
     ctx = build_retrieval_context(chunks, max_chunks=4, max_words=75)
     assert len(ctx.chunks) == 1
     assert ctx.chunks[0].chunk_id == 1
-    # Ensure text is complete and never chopped/truncated midway
     assert ctx.chunks[0].content == passage_50_words
+
+
+def test_context_builder_skips_oversized_first_chunk_instead_of_breaking_budget() -> None:
+    oversized = _chunk(1, " ".join(["large"] * 30))
+    fitting = _chunk(2, "small complete passage")
+
+    ctx = build_retrieval_context([oversized, fitting], max_words=10, max_chars=None)
+
+    assert [chunk.chunk_id for chunk in ctx.chunks] == [2]
+    assert "large" not in ctx.formatted_text
+    assert "small complete passage" in ctx.formatted_text
 
 
 def test_context_builder_never_returns_partial_fabricated_text() -> None:
@@ -69,7 +78,6 @@ def test_context_builder_never_returns_partial_fabricated_text() -> None:
         _chunk(1, complete_sentence),
         _chunk(2, "Second complete instruction sentence."),
     ]
-    # Even with small word budget, first chunk is intact and not sliced into invalid syntax
     ctx = build_retrieval_context(chunks, max_chunks=4, max_words=15)
     assert len(ctx.chunks) == 1
     assert ctx.chunks[0].content == complete_sentence
