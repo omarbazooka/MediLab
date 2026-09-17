@@ -1,6 +1,7 @@
 [
   {
     "id": "RAG-01",
+    "split": "calibration",
     "query": "What are the fasting guidelines for a lipid profile blood test?",
     "expected_document_titles": ["Fasting Guidelines for Diagnostic Blood Tests"],
     "expected_category": "Preparation",
@@ -9,6 +10,7 @@
   },
   {
     "id": "RAG-02",
+    "split": "calibration",
     "query": "How many hours do I need to fast before fasting blood sugar?",
     "expected_document_titles": ["Fasting Guidelines for Diagnostic Blood Tests"],
     "expected_category": "Preparation",
@@ -17,6 +19,7 @@
   },
   {
     "id": "RAG-03",
+    "split": "calibration",
     "query": "هل يمكن شرب الماء أثناء فترة الصيام للتحاليل؟",
     "expected_document_titles": ["Fasting Guidelines for Diagnostic Blood Tests"],
     "expected_category": "Preparation",
@@ -25,6 +28,7 @@
   },
   {
     "id": "RAG-04",
+    "split": "calibration",
     "query": "هل لازم أصوم قبل تحليل الدهون الكامل؟",
     "expected_document_titles": ["Fasting Guidelines for Diagnostic Blood Tests"],
     "expected_category": "Preparation",
@@ -33,6 +37,7 @@
   },
   {
     "id": "RAG-05",
+    "split": "calibration",
     "query": "What is the cancellation policy for home collection visits?",
     "expected_document_titles": ["Appointment Cancellation & Rescheduling Policy"],
     "expected_category": "Policies",
@@ -41,6 +46,7 @@
   },
   {
     "id": "RAG-06",
+    "split": "calibration",
     "query": "How much notice is required to reschedule a branch appointment?",
     "expected_document_titles": ["Appointment Cancellation & Rescheduling Policy"],
     "expected_category": "Policies",
@@ -49,6 +55,7 @@
   },
   {
     "id": "RAG-07",
+    "split": "calibration",
     "query": "هل في غرامة لو لغيت موعد الزيارة المنزلية قبل الموعد بساعتين؟",
     "expected_document_titles": ["Appointment Cancellation & Rescheduling Policy"],
     "expected_category": "Policies",
@@ -57,6 +64,7 @@
   },
   {
     "id": "RAG-08",
+    "split": "calibration",
     "query": "Which areas in Cairo are covered by MediLab home sample collection?",
     "expected_document_titles": ["Home Sample Collection Process & Service Areas"],
     "expected_category": "Services",
@@ -65,6 +73,7 @@
   },
   {
     "id": "RAG-09",
+    "split": "calibration",
     "query": "Can someone come to my home in Maadi to draw the blood sample?",
     "expected_document_titles": ["Home Sample Collection Process & Service Areas"],
     "expected_category": "Services",
@@ -73,6 +82,7 @@
   },
   {
     "id": "RAG-10",
+    "split": "calibration",
     "query": "خدمة سحب العينات من المنزل بتغطي مدينة نصر والتجمع؟",
     "expected_document_titles": ["Home Sample Collection Process & Service Areas"],
     "expected_category": "Services",
@@ -81,6 +91,7 @@
   },
   {
     "id": "RAG-11",
+    "split": "calibration",
     "query": "How long does it take to receive Vitamin D test results?",
     "expected_document_titles": ["Turnaround Times and Result Delivery"],
     "expected_category": "FAQ",
@@ -89,6 +100,7 @@
   },
   {
     "id": "RAG-12",
+    "split": "calibration",
     "query": "نتيجة تحليل الغدة الدرقية بتطلع بعد كام يوم أو ساعة؟",
     "expected_document_titles": ["Turnaround Times and Result Delivery"],
     "expected_category": "FAQ",
@@ -97,6 +109,7 @@
   },
   {
     "id": "RAG-13",
+    "split": "calibration",
     "query": "Does MediLab provide MRI and CT scan imaging services?",
     "expected_document_titles": [],
     "expected_category": null,
@@ -105,6 +118,7 @@
   },
   {
     "id": "RAG-14",
+    "split": "calibration",
     "query": "هل المعمل بيعمل عمليات جراحية أو مناظير باطنة؟",
     "expected_document_titles": [],
     "expected_category": null,
@@ -113,7 +127,53 @@
   },
   {
     "id": "RAG-15",
+    "split": "calibration",
     "query": "Can I get a prescription refill for antibiotics from MediLab?",
+    "expected_document_titles": [],
+    "expected_category": null,
+    "expected_no_answer": true,
+    "language": "en"
+  },
+  {
+    "id": "RAG-16",
+    "split": "holdout",
+    "query": "How many hours before an in-clinic appointment can I reschedule without penalty?",
+    "expected_document_titles": ["Appointment Cancellation & Rescheduling Policy"],
+    "expected_category": "Policies",
+    "expected_no_answer": false,
+    "language": "en"
+  },
+  {
+    "id": "RAG-17",
+    "split": "holdout",
+    "query": "هل خدمة الزيارة المنزلية لسحب العينات متوفرة في المعادي ومدينة نصر؟",
+    "expected_document_titles": ["Home Sample Collection Process & Service Areas"],
+    "expected_category": "Services",
+    "expected_no_answer": false,
+    "language": "ar"
+  },
+  {
+    "id": "RAG-18",
+    "split": "holdout",
+    "query": "When are standard CBC blood test results delivered to patients?",
+    "expected_document_titles": ["Turnaround Times and Result Delivery"],
+    "expected_category": "FAQ",
+    "expected_no_answer": false,
+    "language": "en"
+  },
+  {
+    "id": "RAG-19",
+    "split": "holdout",
+    "query": "هل مسموح بشرب القهوة أو الشاي قبل تحليل السكر الصائم؟",
+    "expected_document_titles": ["Fasting Guidelines for Diagnostic Blood Tests"],
+    "expected_category": "Preparation",
+    "expected_no_answer": false,
+    "language": "ar"
+  },
+  {
+    "id": "RAG-20",
+    "split": "holdout",
+    "query": "Can MediLab administer chemotherapy infusions?",
     "expected_document_titles": [],
     "expected_category": null,
     "expected_no_answer": true,

@@ -7,7 +7,11 @@ import time
 from typing import Any
 
 from app.rag.context import build_retrieval_context
-from app.rag.embeddings import EmbeddingProvider, JinaEmbeddingProvider
+from app.rag.embeddings import (
+    EmbeddingConfigError,
+    EmbeddingProvider,
+    get_embedding_provider,
+)
 from app.rag.fusion import reciprocal_rank_fusion
 from app.rag.grading import grade_retrieval
 from app.rag.rewrite import rewrite_query
@@ -40,7 +44,7 @@ class RAGService:
         final_context_size: int = 4,
     ) -> None:
         self.repository = repository or KnowledgeRepository()
-        self.embedding_provider = embedding_provider or JinaEmbeddingProvider()
+        self.embedding_provider = embedding_provider or get_embedding_provider()
         self.candidate_pool_size = candidate_pool_size
         self.final_context_size = final_context_size
 
@@ -75,6 +79,8 @@ class RAGService:
             )
             diagnostics.semantic_ms += (time.perf_counter() - t_sem_start) * 1000
             diagnostics.semantic_candidates_count = len(semantic_candidates)
+        except EmbeddingConfigError:
+            raise
         except Exception as exc:
             semantic_failed = True
             degraded_reason = f"Semantic retrieval failed: {type(exc).__name__}"

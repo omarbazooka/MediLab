@@ -228,23 +228,23 @@ Fast unit tests:
 uv run pytest tests/unit
 ```
 
-Verified result on the Phase 1 QA commit:
+Verified result on Phase 2:
 
 ```text
-43 passed
+96 passed in 1.81s
 ```
 
 Real PostgreSQL integration tests:
 
 ```powershell
-$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
+$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab_test"
 uv run pytest -m postgres -v
 ```
 
-Verified result:
+Verified result on disposable Docker PostgreSQL (zero skips):
 
 ```text
-15 passed, 43 deselected
+21 passed, 96 deselected in 3.30s
 ```
 
 Full suite:
@@ -256,8 +256,35 @@ uv run pytest
 Verified result:
 
 ```text
-58 passed
+117 passed in 13.06s
 ```
+
+## Phase 2 RAG Verification & Evaluation Scripts
+
+Live Jina AI embeddings verification:
+
+```bash
+uv run python scripts/verify_embeddings.py
+```
+
+Full knowledge base reindexing against database:
+
+```bash
+uv run python scripts/reindex_knowledge.py --all
+```
+
+End-to-end RAG verification (hybrid retrieval, Arabic queries, CRUD synchronization, no-knowledge boundary):
+
+```bash
+uv run python scripts/verify_rag.py
+```
+
+Rigorous RAG evaluation across calibration and holdout sets:
+
+```bash
+uv run python scripts/eval_rag.py
+```
+
 
 Quality gates:
 

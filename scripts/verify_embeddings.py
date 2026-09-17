@@ -56,7 +56,7 @@ def main() -> int:
     print("Provider:        Jina AI")
     print(f"Model:           {model}")
     print(f"Dimension:       {dimension} (enforced Matryoshka)")
-    print(f"API Key Present: Yes (masked: {api_key[:4]}...{api_key[-4:]})")
+    print("API Key Present: Yes")
     print("-" * 60)
 
     provider = JinaEmbeddingProvider(

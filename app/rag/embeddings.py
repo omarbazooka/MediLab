@@ -5,8 +5,9 @@ from __future__ import annotations
 import hashlib
 import logging
 import math
+import os
 import re
-from typing import Protocol, runtime_checkable
+from typing import Any, Protocol, runtime_checkable
 
 import httpx
 
@@ -197,3 +198,84 @@ class DeterministicFakeEmbeddingProvider:
 
     def embed_query(self, text: str) -> list[float]:
         return self._vectorize(text, prefix="doc")
+
+
+def get_embedding_provider(
+    config: dict[str, Any] | None = None,
+) -> EmbeddingProvider:
+    """Config-aware factory constructing the configured EmbeddingProvider.
+
+    Resolution order:
+    1. Explicit `config` mapping.
+    2. Flask `current_app.config` if within active request/app context.
+    3. Environment variables via `os.environ`.
+
+    Validates:
+    - EMBEDDING_PROVIDER ('jina' or 'fake')
+    - When 'jina': non-empty JINA_API_KEY, model, and dimension == 384.
+    - Missing required Jina config raises an explicit EmbeddingConfigError.
+    """
+    resolved_config: dict[str, Any] = {}
+
+    # 1. Start from os.environ
+    for k in ("EMBEDDING_PROVIDER", "EMBEDDING_MODEL", "EMBEDDING_DIMENSION", "JINA_API_KEY"):
+        if k in os.environ:
+            resolved_config[k] = os.environ[k]
+
+    # 2. Overlay Flask current_app if available
+    try:
+        from flask import current_app
+
+        if current_app and hasattr(current_app, "config"):
+            for k in (
+                "EMBEDDING_PROVIDER",
+                "EMBEDDING_MODEL",
+                "EMBEDDING_DIMENSION",
+                "JINA_API_KEY",
+            ):
+                if k in current_app.config:
+                    resolved_config[k] = current_app.config[k]
+    except (ImportError, RuntimeError):
+        pass
+
+    # 3. Overlay explicit passed config
+    if config is not None:
+        if isinstance(config, dict):
+            resolved_config.update(config)
+        elif hasattr(config, "get"):
+            for k in (
+                "EMBEDDING_PROVIDER",
+                "EMBEDDING_MODEL",
+                "EMBEDDING_DIMENSION",
+                "JINA_API_KEY",
+            ):
+                val = config.get(k)
+                if val is not None:
+                    resolved_config[k] = val
+
+    provider_name = str(resolved_config.get("EMBEDDING_PROVIDER", "jina")).strip().lower()
+    dimension = int(resolved_config.get("EMBEDDING_DIMENSION", 384))
+    model = str(resolved_config.get("EMBEDDING_MODEL", "jina-embeddings-v3")).strip()
+    api_key = str(resolved_config.get("JINA_API_KEY", "") or "").strip()
+
+    if provider_name == "jina":
+        if not api_key:
+            raise EmbeddingConfigError(
+                "JINA_API_KEY is required for Jina embedding provider but was not provided."
+            )
+        if dimension != 384:
+            raise EmbeddingConfigError(
+                f"MediLab Jina embedding provider requires dimension=384, got: {dimension}"
+            )
+        return JinaEmbeddingProvider(
+            api_key=api_key,
+            model=model,
+            dimension=dimension,
+        )
+
+    if provider_name in ("fake", "mock", "deterministic"):
+        return DeterministicFakeEmbeddingProvider(dimension=dimension)
+
+    raise EmbeddingConfigError(
+        f"Unsupported EMBEDDING_PROVIDER: '{provider_name}'. Supported providers: 'jina', 'fake'."
+    )

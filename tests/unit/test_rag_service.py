@@ -164,3 +164,18 @@ def test_rag_service_raises_when_both_retrieval_arms_fail() -> None:
 
     with pytest.raises(RAGRetrievalError, match="Both semantic and lexical retrieval arms failed"):
         service.retrieve("Any query")
+
+
+def test_rag_service_raises_embedding_config_error_when_provider_misconfigured() -> None:
+    from app.rag.embeddings import EmbeddingConfigError
+
+    mock_provider = MagicMock()
+    mock_provider.embed_query.side_effect = EmbeddingConfigError("JINA_API_KEY is missing")
+
+    service = RAGService(
+        repository=MagicMock(),
+        embedding_provider=mock_provider,
+    )
+
+    with pytest.raises(EmbeddingConfigError, match="JINA_API_KEY is missing"):
+        service.retrieve("Any query")

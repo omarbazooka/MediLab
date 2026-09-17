@@ -6,7 +6,7 @@ import logging
 
 from app.extensions import db
 from app.models.knowledge import KnowledgeDocument
-from app.rag.embeddings import EmbeddingProvider, JinaEmbeddingProvider
+from app.rag.embeddings import EmbeddingProvider, get_embedding_provider
 from app.rag.indexing import KnowledgeIndexService
 from app.repositories.knowledge_repository import KnowledgeRepository
 
@@ -27,7 +27,7 @@ class KnowledgeService:
         embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self.repository = repository or KnowledgeRepository()
-        provider = embedding_provider or JinaEmbeddingProvider()
+        provider = embedding_provider or get_embedding_provider()
         self.indexer = indexer or KnowledgeIndexService(
             repository=self.repository,
             embedding_provider=provider,

@@ -132,3 +132,46 @@ def test_deterministic_fake_provider() -> None:
     assert len(v1) == 384
     assert v1 == v2
     assert v1 != v3
+
+
+def test_get_embedding_provider_factory_jina_valid() -> None:
+    from app.rag.embeddings import get_embedding_provider
+
+    provider = get_embedding_provider(
+        {
+            "EMBEDDING_PROVIDER": "jina",
+            "JINA_API_KEY": "test-key-123",
+            "EMBEDDING_MODEL": "jina-embeddings-v3",
+            "EMBEDDING_DIMENSION": 384,
+        }
+    )
+    assert isinstance(provider, JinaEmbeddingProvider)
+    assert provider.api_key == "test-key-123"
+    assert provider.dimension == 384
+
+
+def test_get_embedding_provider_factory_missing_jina_key_raises() -> None:
+    from app.rag.embeddings import get_embedding_provider
+
+    with pytest.raises(EmbeddingConfigError, match="JINA_API_KEY is required"):
+        get_embedding_provider(
+            {
+                "EMBEDDING_PROVIDER": "jina",
+                "JINA_API_KEY": "",
+            }
+        )
+
+
+def test_get_embedding_provider_factory_fake() -> None:
+    from app.rag.embeddings import get_embedding_provider
+
+    provider = get_embedding_provider({"EMBEDDING_PROVIDER": "fake", "EMBEDDING_DIMENSION": 384})
+    assert isinstance(provider, DeterministicFakeEmbeddingProvider)
+    assert provider.dimension == 384
+
+
+def test_get_embedding_provider_factory_unsupported_provider_raises() -> None:
+    from app.rag.embeddings import get_embedding_provider
+
+    with pytest.raises(EmbeddingConfigError, match="Unsupported EMBEDDING_PROVIDER"):
+        get_embedding_provider({"EMBEDDING_PROVIDER": "unsupported_xyz"})

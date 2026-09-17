@@ -1,54 +1,72 @@
 # MediLab AI — Phase 2 Hybrid RAG Evaluation Report
 
 ## Metadata
-- **Date / Time:** 2026-09-17 12:23:53 UTC
-- **Git Commit SHA:** `850086548fff`
+- **Date / Time:** 2026-09-17 15:22:11 UTC
+- **Git Commit SHA:** `43dd08e600e9`
 - **Database Endpoint:** `aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require`
 - **Embedding Provider:** Jina AI
 - **Embedding Model:** `jina-embeddings-v3`
 - **Vector Dimension:** `384`
-- **Evaluation Cases:** 15 cases (Bilingual: Arabic & English)
+- **Evaluation Cases:** 20 cases (15 calibration, 5 independent holdout)
 
 ---
 
-## Executive Summary Metrics
+## Executive Summary Metrics (Split Breakdown)
+
+### 1. Calibration vs Holdout Comparison
+
+| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Retry Rate | Avg Latency |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Calibration Set** | 15 | **100.0%** (12/12) | **1.0000** | **100.0%** | 13.3% | 2415.6ms |
+| **Independent Holdout** | 5 | **100.0%** (4/4) | **1.0000** | **100.0%** | 20.0% | 2708.6ms |
+| **Combined Overall** | 20 | **100.0%** (16/16) | **1.0000** | **100.0%** | 15.0% | 2488.9ms |
+
+### 2. Benchmark Target Evaluation
 
 | Metric | Measured Value | Benchmark Target | Status |
 | :--- | :--- | :--- | :--- |
-| **Recall@4** | **100.0%** (12/12) | >= 90.0% | PASS |
-| **MRR (Mean Reciprocal Rank)** | **1.0000** | >= 0.8500 | PASS |
-| **No-Answer Accuracy** | **100.0%** (3/3) | 100.0% | PASS |
-| **Retry Rate** | **13.3%** (2/15) | <= 20.0% | PASS |
-| **Avg Total Retrieval Latency** | **2727.1ms** | < 800ms | PASS |
-| **Avg Query Embedding Latency** | **1178.2ms** | Jina API round-trip | PASS |
-| **Avg pgvector Cosine Latency** | **960.4ms** | PostgreSQL index/table scan | PASS |
-| **Avg PostgreSQL FTS Latency** | **588.4ms** | GIN index / simple dictionary | PASS |
+| **Recall@4** | **100.0%** (16/16) | >= 90.0% | **PASS** |
+| **MRR (Mean Reciprocal Rank)** | **1.0000** | >= 0.8500 | **PASS** |
+| **No-Answer Accuracy** | **100.0%** (4/4) | 100.0% | **PASS** |
+| **Retry Rate** | **15.0%** (3/20) | <= 20.0% | **PASS** |
+| **P95 Latency (Internal SLA)** | **5807.2ms** | < 500.0ms | **TARGET MISSED / NEEDS OPTIMIZATION** |
+| **Median (P50) Latency** | **2195.2ms** | Operational SLA | Informational |
+| **Average Total Latency** | **2488.9ms** | Operational SLA | Informational |
+| **Min / Max Latency** | **721.1ms / 5854.9ms** | Range | Informational |
 
 ---
 
-## Individual Evaluation Cases
+## Detailed Evaluation Cases
 
-| Case ID | Lang | Query Preview | Outcome | Hit Rank | Total Latency |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| RAG-01 | EN | What are the fasting guidelines for a lipid p... | GOOD | 1 | 3045.0ms |
-| RAG-02 | EN | How many hours do I need to fast before fasti... | GOOD | 1 | 2386.9ms |
-| RAG-03 | AR | هل يمكن شرب الماء أثناء فترة الصيام للتحاليل؟... | GOOD | 1 | 1712.3ms |
-| RAG-04 | AR | هل لازم أصوم قبل تحليل الدهون الكامل؟... | GOOD | 1 | 2145.4ms |
-| RAG-05 | EN | What is the cancellation policy for home coll... | GOOD | 1 | 3107.8ms |
-| RAG-06 | EN | How much notice is required to reschedule a b... | GOOD | 1 | 4620.7ms |
-| RAG-07 | AR | هل في غرامة لو لغيت موعد الزيارة المنزلية قبل... | GOOD | 1 | 1221.1ms |
-| RAG-08 | EN | Which areas in Cairo are covered by MediLab h... | GOOD | 1 | 4204.3ms |
-| RAG-09 | EN | Can someone come to my home in Maadi to draw ... | GOOD | 1 | 1469.2ms |
-| RAG-10 | AR | خدمة سحب العينات من المنزل بتغطي مدينة نصر وا... | GOOD | 1 | 1869.8ms |
-| RAG-11 | EN | How long does it take to receive Vitamin D te... | GOOD | 1 | 1942.6ms |
-| RAG-12 | AR | نتيجة تحليل الغدة الدرقية بتطلع بعد كام يوم أ... | GOOD | 1 | 2190.3ms |
-| RAG-13 | EN | Does MediLab provide MRI and CT scan imaging ... | NO_KNOWLEDGE | N/A (Correct) | 2379.8ms |
-| RAG-14 | AR | هل المعمل بيعمل عمليات جراحية أو مناظير باطنة... | NO_KNOWLEDGE | N/A (Correct) | 2807.5ms |
-| RAG-15 | EN | Can I get a prescription refill for antibioti... | NO_KNOWLEDGE | N/A (Correct) | 5803.9ms |
+| Case ID | Split | Lang | Query Preview | Outcome | Hit Rank | Total Latency |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| RAG-01 | calibration | EN | What are the fasting guidelines for a lipi... | GOOD | 1 | 5804.7ms |
+| RAG-02 | calibration | EN | How many hours do I need to fast before fa... | GOOD | 1 | 2533.7ms |
+| RAG-03 | calibration | AR | هل يمكن شرب الماء أثناء فترة الصيام للتحال... | GOOD | 1 | 3772.3ms |
+| RAG-04 | calibration | AR | هل لازم أصوم قبل تحليل الدهون الكامل؟... | GOOD | 1 | 5854.9ms |
+| RAG-05 | calibration | EN | What is the cancellation policy for home c... | GOOD | 1 | 2366.4ms |
+| RAG-06 | calibration | EN | How much notice is required to reschedule ... | GOOD | 1 | 986.5ms |
+| RAG-07 | calibration | AR | هل في غرامة لو لغيت موعد الزيارة المنزلية ... | GOOD | 1 | 752.0ms |
+| RAG-08 | calibration | EN | Which areas in Cairo are covered by MediLa... | GOOD | 1 | 3831.7ms |
+| RAG-09 | calibration | EN | Can someone come to my home in Maadi to dr... | GOOD | 1 | 740.9ms |
+| RAG-10 | calibration | AR | خدمة سحب العينات من المنزل بتغطي مدينة نصر... | GOOD | 1 | 750.8ms |
+| RAG-11 | calibration | EN | How long does it take to receive Vitamin D... | GOOD | 1 | 721.1ms |
+| RAG-12 | calibration | AR | نتيجة تحليل الغدة الدرقية بتطلع بعد كام يو... | GOOD | 1 | 1226.5ms |
+| RAG-13 | calibration | EN | Does MediLab provide MRI and CT scan imagi... | NO_KNOWLEDGE | N/A (Correct) | 788.4ms |
+| RAG-14 | calibration | AR | هل المعمل بيعمل عمليات جراحية أو مناظير با... | NO_KNOWLEDGE | N/A (Correct) | 4034.8ms |
+| RAG-15 | calibration | EN | Can I get a prescription refill for antibi... | NO_KNOWLEDGE | N/A (Correct) | 2069.6ms |
+| RAG-16 | holdout | EN | How many hours before an in-clinic appoint... | GOOD | 1 | 777.9ms |
+| RAG-17 | holdout | AR | هل خدمة الزيارة المنزلية لسحب العينات متوف... | GOOD | 1 | 4664.6ms |
+| RAG-18 | holdout | EN | When are standard CBC blood test results d... | GOOD | 1 | 4363.9ms |
+| RAG-19 | holdout | AR | هل مسموح بشرب القهوة أو الشاي قبل تحليل ال... | GOOD | 1 | 1415.9ms |
+| RAG-20 | holdout | EN | Can MediLab administer chemotherapy infusi... | NO_KNOWLEDGE | N/A (Correct) | 2320.9ms |
 
 ---
 
 ## Analysis & Domain Safety
-1. **Multilingual Grounding:** High-confidence hybrid retrieval works equally well across standard/colloquial Egyptian Arabic and English queries.
-2. **Deterministic No-Answer:** Queries requesting unsupported procedures (MRI, CT scans, surgery, antibiotic prescriptions) consistently yield `NO_KNOWLEDGE` without hallucinating laboratory services.
-3. **Bounded Latency:** Total hybrid retrieval latency consistently stays within comfortable conversational SLA boundaries (< 500ms).
+1. **Evaluation Split Integrity:** The benchmark explicitly separates the 15 calibration queries used during threshold tuning from the 5 independent holdout queries created after freezing thresholds. Performance generalizes across both sets.
+2. **Deterministic No-Answer:** Queries requesting unsupported procedures (MRI, CT scans, surgery, chemotherapy infusions) consistently yield `NO_KNOWLEDGE` without fabricating laboratory offerings.
+3. **Latency Profiling & Honest Target Assessment:**
+   - Internal project target of hybrid retrieval P95 < 500ms is currently **MISSED** (measured P95: ~5807.2ms).
+   - Analysis indicates this latency is predominantly driven by public WAN round-trip latency to the external Jina AI Embeddings API (~700-1500ms) and cloud Supabase PostgreSQL connection (~300-800ms) from the Windows development environment.
+   - Core algorithmic execution (RRF fusion, signal-based grading, context assembly) takes < 2ms locally.

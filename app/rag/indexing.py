@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 from app.extensions import db
 from app.models.knowledge import KnowledgeDocument
 from app.rag.chunking import chunk_document
-from app.rag.embeddings import EmbeddingProvider, JinaEmbeddingProvider
+from app.rag.embeddings import EmbeddingProvider, get_embedding_provider
 from app.repositories.knowledge_repository import KnowledgeRepository
 
 logger = logging.getLogger("medilab.rag.indexing")
@@ -28,7 +28,7 @@ class KnowledgeIndexService:
         embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self.repository = repository or KnowledgeRepository()
-        self.embedding_provider = embedding_provider or JinaEmbeddingProvider()
+        self.embedding_provider = embedding_provider or get_embedding_provider()
 
     def index_document(self, document_id: int) -> KnowledgeDocument:
         """Index or re-index a single document.

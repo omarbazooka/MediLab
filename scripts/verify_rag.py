@@ -49,21 +49,25 @@ def main() -> int:
                 "label": "English Known-Answer Policy Query",
                 "query": "What is the cancellation policy for a home visit?",
                 "expected_outcome": "GOOD",
+                "expected_document_title": "Appointment Cancellation & Rescheduling Policy",
             },
             {
                 "label": "Arabic Known-Answer Preparation Query",
                 "query": "هل لازم أصوم قبل تحليل الدهون؟",
                 "expected_outcome": "GOOD",
+                "expected_document_title": "Fasting Guidelines for Diagnostic Blood Tests",
             },
             {
                 "label": "English Paraphrased Service Query",
                 "query": "Can someone come to my house to collect the sample?",
                 "expected_outcome": "GOOD",
+                "expected_document_title": "Home Sample Collection Process & Service Areas",
             },
             {
                 "label": "Unsupported / Non-Knowledge Query",
                 "query": "Does MediLab provide MRI scans?",
                 "expected_outcome": "NO_KNOWLEDGE",
+                "expected_document_title": None,
             },
         ]
 
@@ -113,12 +117,29 @@ def main() -> int:
             else:
                 print("  Retrieved Chunks: None (Correct deterministic no-answer)")
 
-            # Verify expectations
-            if res.outcome == tc["expected_outcome"]:
+            # Strict verification of outcome, top source provenance, and zero-chunk guarantee
+            case_passed = True
+            if res.outcome != tc["expected_outcome"]:
+                print(f"  STATUS: FAIL (Outcome {res.outcome} != {tc['expected_outcome']})")
+                case_passed = False
+            elif tc["expected_outcome"] == "NO_KNOWLEDGE":
+                if len(res.final_chunks) != 0:
+                    print(
+                        f"  STATUS: FAIL (Expected 0 chunks for NO_KNOWLEDGE, got {len(res.final_chunks)})"
+                    )
+                    case_passed = False
+            else:
+                expected_title = tc["expected_document_title"]
+                top_title = res.final_chunks[0].document_title if res.final_chunks else None
+                if top_title != expected_title:
+                    print(
+                        f"  STATUS: FAIL (Top document '{top_title}' != expected '{expected_title}')"
+                    )
+                    case_passed = False
+
+            if case_passed:
                 print("  STATUS: PASS")
                 passed += 1
-            else:
-                print(f"  STATUS: FAIL (Outcome {res.outcome} != {tc['expected_outcome']})")
 
         print("\n" + "=" * 80)
         print(f"RAG Verification Complete: {passed}/{len(test_cases)} Passed.")
