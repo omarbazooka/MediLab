@@ -129,13 +129,11 @@ class KnowledgeRepository:
         embeddings: list[list[float]],
     ) -> list[KnowledgeChunk]:
         """Atomically replace all chunks for a document within the active transaction."""
-        # 1. Delete existing chunks for this document
         existing = self.get_chunks_by_document(document_id)
         for chunk in existing:
             db.session.delete(chunk)
         db.session.flush()
 
-        # 2. Insert fresh chunks with embeddings and metadata
         new_chunks: list[KnowledgeChunk] = []
         for idx, spec in enumerate(chunk_specs):
             embedding = embeddings[idx] if idx < len(embeddings) else None
@@ -159,6 +157,19 @@ class KnowledgeRepository:
         except Exception:
             return False
 
+    @staticmethod
+    def _chunk_matches_current_version(
+        chunk: KnowledgeChunk,
+        document: KnowledgeDocument,
+    ) -> bool:
+        """Return True only when chunk metadata belongs to the document's current version."""
+        metadata = chunk.metadata_ or {}
+        chunk_version = metadata.get("document_version")
+        try:
+            return int(chunk_version) == document.version
+        except (TypeError, ValueError):
+            return False
+
     def search_semantic(
         self,
         query_embedding: list[float],
@@ -168,8 +179,11 @@ class KnowledgeRepository:
     ) -> list[SemanticCandidate]:
         """Retrieve top semantic candidates using pgvector cosine distance (<=>).
 
-        Only returns chunks from active documents with index_status='READY'.
+        Only returns chunks from active READY documents whose chunk metadata matches
+        the current KnowledgeDocument.version.
         """
+        candidate_window = max(top_k * 4, top_k)
+
         if self._is_postgresql():
             distance_expr = KnowledgeChunk.embedding.cosine_distance(query_embedding).label(
                 "distance"
@@ -189,11 +203,15 @@ class KnowledgeRepository:
             if document_ids:
                 stmt = stmt.where(KnowledgeDocument.id.in_(document_ids))
 
-            stmt = stmt.order_by(distance_expr.asc(), KnowledgeChunk.id.asc()).limit(top_k)
+            stmt = stmt.order_by(distance_expr.asc(), KnowledgeChunk.id.asc()).limit(
+                candidate_window
+            )
             rows = db.session.execute(stmt).all()
 
             candidates: list[SemanticCandidate] = []
-            for rank, (chunk, doc, dist) in enumerate(rows, start=1):
+            for chunk, doc, dist in rows:
+                if not self._chunk_matches_current_version(chunk, doc):
+                    continue
                 candidates.append(
                     SemanticCandidate(
                         chunk_id=chunk.id,
@@ -204,12 +222,13 @@ class KnowledgeRepository:
                         chunk_index=chunk.chunk_index,
                         content=chunk.content,
                         cosine_distance=float(dist) if dist is not None else 1.0,
-                        semantic_rank=rank,
+                        semantic_rank=len(candidates) + 1,
                     )
                 )
+                if len(candidates) >= top_k:
+                    break
             return candidates
 
-        # In-memory fallback for isolated SQLite unit tests
         stmt = (
             select(KnowledgeChunk, KnowledgeDocument)
             .join(KnowledgeDocument, KnowledgeChunk.document_id == KnowledgeDocument.id)
@@ -227,6 +246,8 @@ class KnowledgeRepository:
         rows = db.session.execute(stmt).all()
         scored: list[tuple[KnowledgeChunk, KnowledgeDocument, float]] = []
         for chunk, doc in rows:
+            if not self._chunk_matches_current_version(chunk, doc):
+                continue
             vec = chunk.embedding or []
             if len(vec) == len(query_embedding):
                 dot = sum(a * b for a, b in zip(vec, query_embedding, strict=True))
@@ -239,8 +260,8 @@ class KnowledgeRepository:
             scored.append((chunk, doc, dist))
 
         scored.sort(key=lambda item: (item[2], item[0].id))
-        candidates = []
-        for rank, (chunk, doc, dist) in enumerate(scored[:top_k], start=1):
+        candidates: list[SemanticCandidate] = []
+        for chunk, doc, dist in scored[:top_k]:
             candidates.append(
                 SemanticCandidate(
                     chunk_id=chunk.id,
@@ -251,7 +272,7 @@ class KnowledgeRepository:
                     chunk_index=chunk.chunk_index,
                     content=chunk.content,
                     cosine_distance=dist,
-                    semantic_rank=rank,
+                    semantic_rank=len(candidates) + 1,
                 )
             )
         return candidates
@@ -263,15 +284,15 @@ class KnowledgeRepository:
         category: str | None = None,
         document_ids: list[int] | None = None,
     ) -> list[LexicalCandidate]:
-        """Retrieve top lexical candidates using PostgreSQL Full-Text Search against search_vector.
+        """Retrieve top lexical candidates using PostgreSQL FTS.
 
-        Only returns chunks from active documents with index_status='READY'.
+        Only returns chunks from active READY documents whose chunk metadata matches
+        the current KnowledgeDocument.version.
         """
         clean_text = query_text.strip()
         if not clean_text:
             return []
 
-        # Common conversational and brand stop-words to prevent false-positive FTS matches
         lexical_stop_words = {
             "does",
             "do",
@@ -330,22 +351,18 @@ class KnowledgeRepository:
             "ده",
             "دي",
         }
+        candidate_window = max(top_k * 4, top_k)
 
         if self._is_postgresql():
-            # Extract word tokens (Arabic & Latin alphanumeric)
             raw_tokens = [re.sub(r"[^\w]", "", w) for w in clean_text.split()]
             tokens = [t for t in raw_tokens if len(t) > 1 and t.lower() not in lexical_stop_words]
 
             if not tokens:
-                # If query contains only stop words, fall back to non-stop words if available or return empty
                 tokens = [t for t in raw_tokens if len(t) > 1]
                 if not tokens:
                     return []
 
-            # Construct safe OR query for keywords: 'token1' | 'token2' ...
             safe_terms = " | ".join(f"'{t}'" for t in tokens)
-
-            # PostgreSQL FTS rank expression with simple configuration
             tsquery = func.to_tsquery("simple", safe_terms)
             rank_expr = func.ts_rank_cd(KnowledgeChunk.search_vector, tsquery).label("rank_score")
 
@@ -364,11 +381,15 @@ class KnowledgeRepository:
             if document_ids:
                 stmt = stmt.where(KnowledgeDocument.id.in_(document_ids))
 
-            stmt = stmt.order_by(rank_expr.desc(), KnowledgeChunk.id.asc()).limit(top_k)
+            stmt = stmt.order_by(rank_expr.desc(), KnowledgeChunk.id.asc()).limit(
+                candidate_window
+            )
             rows = db.session.execute(stmt).all()
 
             candidates: list[LexicalCandidate] = []
-            for rank, (chunk, doc, score) in enumerate(rows, start=1):
+            for chunk, doc, score in rows:
+                if not self._chunk_matches_current_version(chunk, doc):
+                    continue
                 candidates.append(
                     LexicalCandidate(
                         chunk_id=chunk.id,
@@ -379,12 +400,13 @@ class KnowledgeRepository:
                         chunk_index=chunk.chunk_index,
                         content=chunk.content,
                         fts_score=float(score) if score is not None else 0.0,
-                        lexical_rank=rank,
+                        lexical_rank=len(candidates) + 1,
                     )
                 )
+                if len(candidates) >= top_k:
+                    break
             return candidates
 
-        # In-memory keyword match fallback for isolated SQLite unit tests
         raw_tokens = [re.sub(r"[^\w]", "", w).lower() for w in clean_text.split()]
         tokens = [t for t in raw_tokens if len(t) > 1 and t not in lexical_stop_words]
         if not tokens:
@@ -405,8 +427,10 @@ class KnowledgeRepository:
             stmt = stmt.where(KnowledgeDocument.id.in_(document_ids))
 
         rows = db.session.execute(stmt).all()
-        scored_lex = []
+        scored_lex: list[tuple[KnowledgeChunk, KnowledgeDocument, float]] = []
         for chunk, doc in rows:
+            if not self._chunk_matches_current_version(chunk, doc):
+                continue
             content_lower = chunk.content.lower()
             matches = sum(1 for t in tokens if t in content_lower)
             if matches > 0:
@@ -414,8 +438,8 @@ class KnowledgeRepository:
                 scored_lex.append((chunk, doc, score))
 
         scored_lex.sort(key=lambda item: (-item[2], item[0].id))
-        candidates = []
-        for rank, (chunk, doc, score) in enumerate(scored_lex[:top_k], start=1):
+        candidates: list[LexicalCandidate] = []
+        for chunk, doc, score in scored_lex[:top_k]:
             candidates.append(
                 LexicalCandidate(
                     chunk_id=chunk.id,
@@ -426,7 +450,7 @@ class KnowledgeRepository:
                     chunk_index=chunk.chunk_index,
                     content=chunk.content,
                     fts_score=score,
-                    lexical_rank=rank,
+                    lexical_rank=len(candidates) + 1,
                 )
             )
         return candidates
