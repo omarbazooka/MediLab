@@ -1,28 +1,31 @@
 # MediLab AI
 
 **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-**Current scope:** Phase 1 — ORM, Migrations & Seed Data  
+**Current scope:** Phase 2 — Standalone Hybrid RAG Core
 **Target deadline:** 20 September 2026
 
-MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 1 establishes the deterministic PostgreSQL persistence and business-service foundation that later RAG, LangGraph, customer UI, and admin phases will use.
+MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 2 establishes the modular, explainable, and deterministic hybrid RAG retrieval pipeline and managed knowledge lifecycle that later conversational LangGraph agents will use.
 
-## Phase 1 status
+## Phase 2 status
 
-Implemented and locally/live verified on the Phase 1 branch:
+Implemented and verified:
 
-- 15 SQLAlchemy 2.x domain models
-- Supabase-hosted PostgreSQL as the durable application database
-- disposable Docker PostgreSQL 16 + pgvector for migration/integration testing
-- Alembic migrations through revision `44cef7a277a7`
-- pgvector `VECTOR(384)` schema for `intfloat/multilingual-e5-small`
-- PostgreSQL FTS `TSVECTOR` maintenance trigger + GIN index
-- deterministic test/package/branch/availability services
-- transactional branch and HOME booking service
-- slot row locking, idempotency, controlled rollback, cancellation locking
-- visible `SearchSnapshot` persistence with cross-session active-snapshot protection
-- deterministic, rerunnable fictional seed data
-
-Not implemented yet: RAG runtime/retrieval, LangGraph orchestration, customer chat UI, admin dashboard, and Meta Messenger.
+- Jina AI embeddings (`jina-embeddings-v3` @ 384 dimensions via Matryoshka truncation)
+- Explicit task conditioning: `retrieval.passage` for document chunks, `retrieval.query` for search queries
+- Deterministic paragraph-aware / word-bounded chunker supporting Arabic and English
+- Atomic knowledge indexing lifecycle: `PENDING` -> `INDEXING` -> `READY` / `FAILED`
+- PostgreSQL pgvector cosine distance (`<=>`) semantic search (top 8)
+- PostgreSQL Full-Text Search against `search_vector` with `simple` dictionary (top 8)
+- Reciprocal Rank Fusion (RRF with $k=60$) combining semantic and lexical scores
+- Deterministic context-aware query rewrite baseline with Arabic/English pronoun ambiguity detection
+- Signal-based retrieval grader: `GOOD`, `WEAK_RETRY`, `AMBIGUOUS_USER_QUERY`, `NO_KNOWLEDGE`
+- Bounded retry: maximum of 1 alternate query retry on `WEAK_RETRY` (capped at 2 attempts)
+- Context assembly: top 3–4 deduplicated chunks preserving document title, category, and chunk provenance
+- Degraded mode: graceful single-arm fallback if semantic or lexical arm fails
+- Full CRUD synchronization: Add, Update (version increment & chunk replacement), Delete, Deactivate
+- Standalone RAG CLI utilities and evaluation runner measuring Recall@4 and MRR
+- Zero LangGraph / Zero LLM generation (deferred to Phase 3)
+- Zero database migrations required (`VECTOR(384)` schema preserved)
 
 ## Core Phase 1 models
 
@@ -155,6 +158,44 @@ The verification script checks the configured database for:
 - active snapshot-integrity trigger
 - strengthened HOME booking constraint
 - seed counts
+
+## Phase 2 RAG Core commands
+
+### 1. Live Jina Embeddings API verification
+Verify live Jina AI Embeddings API call (English query & Arabic passage @ 384 dimensions):
+
+```bash
+uv run python scripts/verify_embeddings.py
+```
+
+### 2. Knowledge base indexing & synchronization
+Index all active seeded knowledge documents:
+
+```bash
+uv run python scripts/reindex_knowledge.py --all
+```
+
+Index a specific document by ID or retry failed documents:
+
+```bash
+uv run python scripts/reindex_knowledge.py --document-id 1
+uv run python scripts/reindex_knowledge.py --failed
+```
+
+### 3. Interactive RAG retrieval verification
+Run benchmark queries (Arabic, English, paraphrased, no-answer) against the indexed knowledge base:
+
+```bash
+uv run python scripts/verify_rag.py
+```
+
+### 4. RAG evaluation benchmark
+Run the evaluation suite across 15 bilingual cases to measure Recall@4, MRR, and latencies:
+
+```bash
+uv run python scripts/eval_rag.py
+```
+Outputs the detailed evaluation report to `docs/evaluation/phase2_rag_eval.md`.
 
 ## Business-service behavior
 

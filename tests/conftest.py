@@ -14,6 +14,8 @@ from app import create_app
 
 load_dotenv()
 
+_POSTGRES_REACHABLE: dict[str, bool] = {}
+
 
 @pytest.fixture
 def app() -> Flask:
@@ -65,6 +67,24 @@ def postgres_app() -> Generator[Flask, None, None]:
 
     app_db_url = os.getenv("DATABASE_URL", "").strip()
     validate_test_database_url(database_url, app_db_url)
+
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(database_url.replace("postgresql+psycopg://", "postgresql://"))
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    cache_key = f"{host}:{port}"
+    if cache_key in _POSTGRES_REACHABLE:
+        if not _POSTGRES_REACHABLE[cache_key]:
+            pytest.skip(f"PostgreSQL server at {cache_key} is unreachable")
+    else:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                _POSTGRES_REACHABLE[cache_key] = True
+        except (OSError, TimeoutError):
+            _POSTGRES_REACHABLE[cache_key] = False
+            pytest.skip(f"PostgreSQL server at {cache_key} is unreachable")
 
     app_instance = create_app(
         "testing",

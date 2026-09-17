@@ -19,12 +19,20 @@ Supabase is used as hosted PostgreSQL only; Phase 1 does not add Supabase-specif
 
 ## Decision 2: Embedding model and vector dimension
 
-- **Status:** LOCKED
-- **Model:** `intfloat/multilingual-e5-small`
-- **Vector dimension:** `384`
-- **Schema mapping:** `KnowledgeChunk.embedding -> VECTOR(384)`.
-
-Phase 1 locks storage only. Embedding generation and retrieval belong to Phase 2.
+- **Status:** LOCKED (UPDATED FOR PHASE 2)
+- **Previous Phase 1 Storage Assumption:** `intfloat/multilingual-e5-small` (local HF runtime assumption).
+- **Phase 2 Runtime Decision:** `jina-embeddings-v3` via Jina AI Embeddings API.
+- **Task Types:** `retrieval.passage` for document chunks, `retrieval.query` for search queries.
+- **Vector Dimension:** `384` (enforced via Jina v3 Matryoshka dimension truncation).
+- **Schema Mapping:** `KnowledgeChunk.embedding -> VECTOR(384)`.
+- **Date Updated:** 2026-09-17.
+- **Rationale:**
+  1. Superior multilingual capability across Modern Standard Arabic and colloquial Egyptian Arabic healthcare queries.
+  2. Asymmetric task conditioning (`retrieval.query` vs `retrieval.passage`) optimizes query-document alignment without synthetic fine-tuning.
+  3. Support for Matryoshka dimension truncation enables restricting outputs to 384 dimensions, exactly matching the Phase 1 schema invariant.
+  4. Lightweight API integration via `httpx` avoids heavy PyTorch / transformers dependencies in production.
+- **Schema Migration Status:** NO SCHEMA MIGRATION REQUIRED. `VECTOR(384)` remains identical.
+- **Affected Files:** `app/config.py`, `app/rag/embeddings.py`, `app/rag/indexing.py`, `scripts/verify_embeddings.py`.
 
 ---
 
@@ -116,3 +124,17 @@ Visible ordinal references in later phases must resolve against exactly this act
 - Forward QA hardening migration: `44cef7a277a7`.
 
 All future schema changes must be additive Alembic migrations; do not rewrite already-applied Supabase migration history.
+
+---
+
+## Decision 12: Phase 2 Hybrid RAG Retrieval Architecture
+
+- **Status:** LOCKED FOR PHASE 2
+- **Semantic Retrieval:** PostgreSQL pgvector cosine distance (`<=>`), returning top-8 candidates from active, `READY` documents.
+- **Lexical Retrieval:** PostgreSQL Full-Text Search against `KnowledgeChunk.search_vector` using `to_tsquery('simple', ...)` with `ts_rank_cd`, returning top-8 candidates from active, `READY` documents.
+- **Score Fusion:** Reciprocal Rank Fusion (RRF) with constant $k=60$. Deduplicates by `chunk_id` and reinforces dual-arm hits.
+- **Query Rewrite Baseline:** Deterministic context-aware query rewrite handling English and Arabic anaphoric/ambiguous pronouns without requiring general LLM generation in Phase 2. Ambiguous queries without trusted grounding return `AMBIGUOUS_USER_QUERY` (never guess).
+- **Retrieval Grading:** Observable signal-based evaluation (dual-arm agreement, cosine distance floors, lexical evidence).
+- **Bounded Retry:** Maximum of 1 retry on `WEAK_RETRY` using alternate normalized/entity-grounded query terms; strictly capped at 2 attempts total.
+- **Final Context Assembly:** Top 3–4 deduplicated chunks (default 4) preserving title, category, version, and chunk provenance.
+- **Reranker:** DEFERRED / CORE ENHANCEMENT. Learned neural rerankers (Cohere, Jina Reranker) are deferred to post-Phase 2 optimization to preserve baseline predictability and deadline safety.
