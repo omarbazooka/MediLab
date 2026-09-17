@@ -136,7 +136,7 @@
   },
   {
     "id": "RAG-16",
-    "split": "holdout",
+    "split": "post_calibration_validation",
     "query": "How many hours before an in-clinic appointment can I reschedule without penalty?",
     "expected_document_titles": ["Appointment Cancellation & Rescheduling Policy"],
     "expected_category": "Policies",
@@ -145,7 +145,7 @@
   },
   {
     "id": "RAG-17",
-    "split": "holdout",
+    "split": "post_calibration_validation",
     "query": "هل خدمة الزيارة المنزلية لسحب العينات متوفرة في المعادي ومدينة نصر؟",
     "expected_document_titles": ["Home Sample Collection Process & Service Areas"],
     "expected_category": "Services",
@@ -154,7 +154,7 @@
   },
   {
     "id": "RAG-18",
-    "split": "holdout",
+    "split": "post_calibration_validation",
     "query": "When are standard CBC blood test results delivered to patients?",
     "expected_document_titles": ["Turnaround Times and Result Delivery"],
     "expected_category": "FAQ",
@@ -163,7 +163,7 @@
   },
   {
     "id": "RAG-19",
-    "split": "holdout",
+    "split": "post_calibration_validation",
     "query": "هل مسموح بشرب القهوة أو الشاي قبل تحليل السكر الصائم؟",
     "expected_document_titles": ["Fasting Guidelines for Diagnostic Blood Tests"],
     "expected_category": "Preparation",
@@ -172,7 +172,7 @@
   },
   {
     "id": "RAG-20",
-    "split": "holdout",
+    "split": "post_calibration_validation",
     "query": "Can MediLab administer chemotherapy infusions?",
     "expected_document_titles": [],
     "expected_category": null,
