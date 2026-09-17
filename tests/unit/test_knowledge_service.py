@@ -101,6 +101,26 @@ def test_knowledge_service_deactivate_sets_inactive(app) -> None:
         assert deactivated.active is False
 
 
+def test_knowledge_service_respects_injected_indexer_without_provider_factory(
+    app, monkeypatch
+) -> None:
+    """Supplying an indexer must not require Jina configuration during construction."""
+    with app.app_context():
+        db.create_all()
+        custom_indexer = MagicMock(spec=KnowledgeIndexService)
+
+        def fail_if_called():
+            raise AssertionError("get_embedding_provider must not run for an injected indexer")
+
+        monkeypatch.setattr(
+            "app.services.knowledge_service.get_embedding_provider",
+            fail_if_called,
+        )
+
+        service = KnowledgeService(indexer=custom_indexer)
+        assert service.indexer is custom_indexer
+
+
 def test_knowledge_index_service_failure_sets_failed_status_and_safe_error(app) -> None:
     with app.app_context():
         db.create_all()
