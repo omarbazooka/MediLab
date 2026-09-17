@@ -5,14 +5,11 @@ Validates real PostgreSQL behaviors:
 - FTS trigger search_vector maintenance and lexical retrieval
 - RRF hybrid fusion combining semantic and lexical scores
 - Lifecycle filtering: only active + READY documents retrievable
+- Current-version filtering: stale chunk metadata is never returned
 - Inactive, PENDING, INDEXING, FAILED exclusions
 - Document Add -> index -> READY -> retrievable
 - Document Update -> version increments -> old text disappears -> new text retrievable
 - Document Delete -> cascade deletes chunks -> unretrievable
-- Document Deactivate -> immediately unretrievable
-- Indexing failure records safe index_error and FAILED status
-- Reindex transitions back to READY
-- Degraded mode operation
 """
 
 from __future__ import annotations
@@ -49,25 +46,31 @@ def test_postgres_vector_storage_and_semantic_retrieval(postgres_app, fake_provi
 
         v1 = fake_provider.embed_query("Fasting for blood tests")
         v2 = fake_provider.embed_query("Completely unrelated text")
+        metadata = {"document_version": doc.version}
 
-        # Insert chunks
         repo.replace_document_chunks(
             document_id=doc.id,
             chunk_specs=[
-                {"chunk_index": 0, "content": "Fasting for blood tests.", "metadata": {}},
-                {"chunk_index": 1, "content": "Unrelated paragraph.", "metadata": {}},
+                {
+                    "chunk_index": 0,
+                    "content": "Fasting for blood tests.",
+                    "metadata": metadata,
+                },
+                {
+                    "chunk_index": 1,
+                    "content": "Unrelated paragraph.",
+                    "metadata": metadata,
+                },
             ],
             embeddings=[v1, v2],
         )
         db.session.commit()
 
-        # Semantic search with query near v1
         results = repo.search_semantic(query_embedding=v1, top_k=2)
         assert len(results) >= 2
         assert results[0].chunk_index == 0
         assert results[0].cosine_distance < results[1].cosine_distance
 
-        # Cleanup
         repo.delete_document(doc)
         db.session.commit()
 
@@ -91,23 +94,20 @@ def test_postgres_fts_trigger_and_lexical_retrieval(postgres_app) -> None:
                 {
                     "chunk_index": 0,
                     "content": "Specialized cancellation policy for home phlebotomy visits.",
-                    "metadata": {},
+                    "metadata": {"document_version": doc.version},
                 }
             ],
             embeddings=[[0.0] * 384],
         )
         db.session.commit()
 
-        # Check that trigger populated search_vector
         chunk = repo.get_chunks_by_document(doc.id)[0]
         assert chunk.search_vector is not None
 
-        # Search lexically for 'cancellation'
         lex_results = repo.search_lexical(query_text="cancellation home visits", top_k=5)
         matching_ids = [c.chunk_id for c in lex_results]
         assert chunk.id in matching_ids
 
-        # Cleanup
         repo.delete_document(doc)
         db.session.commit()
 
@@ -136,18 +136,16 @@ def test_postgres_hybrid_retrieval_fuses_both_arms(postgres_app, fake_provider) 
         assert res.final_chunks[0].semantic_rank is not None
         assert res.final_chunks[0].lexical_rank is not None
 
-        # Cleanup
         service.delete_document(doc.id)
 
 
 def test_retrieval_excludes_inactive_and_non_ready_documents(postgres_app, fake_provider) -> None:
-    """Verify retrieval excludes inactive documents and documents with PENDING, INDEXING, FAILED statuses."""
+    """Verify retrieval excludes inactive documents and PENDING, INDEXING, FAILED states."""
     with postgres_app.app_context():
         repo = KnowledgeRepository()
         service = KnowledgeService(repository=repo, embedding_provider=fake_provider)
         rag = RAGService(repository=repo, embedding_provider=fake_provider)
 
-        # 1. Inactive document
         doc_inactive = service.create_document(
             title="Inactive Doc",
             category="Policies",
@@ -155,8 +153,6 @@ def test_retrieval_excludes_inactive_and_non_ready_documents(postgres_app, fake_
             active=False,
             auto_index=True,
         )
-
-        # 2. PENDING document
         doc_pending = service.create_document(
             title="Pending Doc",
             category="Policies",
@@ -164,8 +160,6 @@ def test_retrieval_excludes_inactive_and_non_ready_documents(postgres_app, fake_
             active=True,
             auto_index=False,
         )
-
-        # 3. INDEXING document
         doc_indexing = service.create_document(
             title="Indexing Doc",
             category="Policies",
@@ -176,7 +170,6 @@ def test_retrieval_excludes_inactive_and_non_ready_documents(postgres_app, fake_
         repo.set_document_status(doc_indexing.id, "INDEXING")
         db.session.commit()
 
-        # 4. FAILED document
         doc_failed = service.create_document(
             title="Failed Doc",
             category="Policies",
@@ -187,7 +180,6 @@ def test_retrieval_excludes_inactive_and_non_ready_documents(postgres_app, fake_
         repo.set_document_status(doc_failed.id, "FAILED", error="Simulated failure")
         db.session.commit()
 
-        # Execute search
         res = rag.retrieve("keyword_alpha")
         retrieved_doc_ids = {c.document_id for c in res.final_chunks}
 
@@ -196,9 +188,46 @@ def test_retrieval_excludes_inactive_and_non_ready_documents(postgres_app, fake_
         assert doc_indexing.id not in retrieved_doc_ids
         assert doc_failed.id not in retrieved_doc_ids
 
-        # Cleanup
-        for d in (doc_inactive, doc_pending, doc_indexing, doc_failed):
-            service.delete_document(d.id)
+        for document in (doc_inactive, doc_pending, doc_indexing, doc_failed):
+            service.delete_document(document.id)
+
+
+def test_retrieval_excludes_stale_chunk_document_versions(postgres_app, fake_provider) -> None:
+    """A READY document must never return chunks from a stale indexed version."""
+    with postgres_app.app_context():
+        repo = KnowledgeRepository()
+        doc = repo.create_document(
+            title="Versioned Policy",
+            category="Policies",
+            content="Current policy version two.",
+            active=True,
+            version=2,
+            index_status="READY",
+        )
+        db.session.commit()
+
+        query_vector = fake_provider.embed_query("stale_version_marker")
+        repo.replace_document_chunks(
+            document_id=doc.id,
+            chunk_specs=[
+                {
+                    "chunk_index": 0,
+                    "content": "stale_version_marker old policy content",
+                    "metadata": {"document_version": 1},
+                }
+            ],
+            embeddings=[query_vector],
+        )
+        db.session.commit()
+
+        semantic = repo.search_semantic(query_embedding=query_vector, top_k=5)
+        lexical = repo.search_lexical(query_text="stale_version_marker", top_k=5)
+
+        assert all(candidate.document_id != doc.id for candidate in semantic)
+        assert all(candidate.document_id != doc.id for candidate in lexical)
+
+        repo.delete_document(doc)
+        db.session.commit()
 
 
 def test_metadata_category_and_document_id_filters(postgres_app, fake_provider) -> None:
@@ -222,24 +251,21 @@ def test_metadata_category_and_document_id_filters(postgres_app, fake_provider) 
             auto_index=True,
         )
 
-        # Filter by CategoryA
         res_cat = rag.retrieve(
             "alpha beta",
             filters=RetrievalFilters(category="CategoryA"),
         )
-        for c in res_cat.final_chunks:
-            assert c.document_category == "CategoryA"
-            assert c.document_id == doc1.id
+        for chunk in res_cat.final_chunks:
+            assert chunk.document_category == "CategoryA"
+            assert chunk.document_id == doc1.id
 
-        # Filter by document_ids
         res_id = rag.retrieve(
             "alpha beta",
             filters=RetrievalFilters(document_ids=[doc2.id]),
         )
-        for c in res_id.final_chunks:
-            assert c.document_id == doc2.id
+        for chunk in res_id.final_chunks:
+            assert chunk.document_id == doc2.id
 
-        # Cleanup
         service.delete_document(doc1.id)
         service.delete_document(doc2.id)
 
@@ -252,7 +278,6 @@ def test_crud_lifecycle_add_update_delete_reflected_in_retrieval(
         service = KnowledgeService(embedding_provider=fake_provider)
         rag = RAGService(repository=service.repository, embedding_provider=fake_provider)
 
-        # 1. ADD
         doc = service.create_document(
             title="Parking Policy",
             category="Policies",
@@ -266,7 +291,6 @@ def test_crud_lifecycle_add_update_delete_reflected_in_retrieval(
         assert len(res_v1.final_chunks) > 0
         assert "50 EGP" in res_v1.final_chunks[0].content
 
-        # 2. UPDATE
         updated = service.update_document(
             document_id=doc.id,
             content="MediLab parking fee has been updated to 75 EGP with valet service.",
@@ -278,10 +302,8 @@ def test_crud_lifecycle_add_update_delete_reflected_in_retrieval(
         res_v2 = rag.retrieve("parking fee for visitor branches")
         assert len(res_v2.final_chunks) > 0
         assert "75 EGP" in res_v2.final_chunks[0].content
-        # Crucial invariant: old 50 EGP text must NO LONGER be returned!
         assert "50 EGP" not in res_v2.final_chunks[0].content
 
-        # 3. DELETE
         service.delete_document(doc.id)
         res_v3 = rag.retrieve("parking fee for visitor branches")
         matching = [c for c in res_v3.final_chunks if c.document_id == doc.id]
