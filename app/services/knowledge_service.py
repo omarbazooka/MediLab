@@ -27,11 +27,17 @@ class KnowledgeService:
         embedding_provider: EmbeddingProvider | None = None,
     ) -> None:
         self.repository = repository or KnowledgeRepository()
-        provider = embedding_provider or get_embedding_provider()
-        self.indexer = indexer or KnowledgeIndexService(
-            repository=self.repository,
-            embedding_provider=provider,
-        )
+
+        if indexer is not None:
+            # Respect explicit dependency injection. A caller supplying a ready indexer
+            # must not need Jina credentials merely to construct this service.
+            self.indexer = indexer
+        else:
+            provider = embedding_provider or get_embedding_provider()
+            self.indexer = KnowledgeIndexService(
+                repository=self.repository,
+                embedding_provider=provider,
+            )
 
     def get_document(self, document_id: int) -> KnowledgeDocument | None:
         """Fetch a knowledge document by ID."""
