@@ -1,14 +1,17 @@
 """Evaluation runner for Phase 2 hybrid RAG retrieval benchmark.
 
 Calculates:
-- Split-aware metrics: Calibration (15 cases) vs Holdout (5 cases) vs Combined (20 cases)
+- Calibration vs post-calibration validation metrics
 - Recall@4
-- MRR (Mean Reciprocal Rank)
+- MRR (Mean Reciprocal Rank) across known-answer cases
 - No-answer correctness
-- Latency statistics (Average, Median P50, P95, Min, Max) across stages
-- Dynamic threshold evaluation with honest status reporting (no hardcoded PASS)
+- Retry rate
+- Latency statistics (Average, Median P50, P95, Min, Max)
+- Dynamic threshold evaluation with honest status reporting
 
-Outputs markdown report to docs/evaluation/phase2_rag_eval.md.
+The post-calibration validation cases are NOT described as an independent holdout because
+some were probed during QA hardening. Correctness target failures return a non-zero exit
+code; latency remains an observed, non-blocking internal optimization target.
 
 Usage:
     uv run python scripts/eval_rag.py
@@ -23,7 +26,6 @@ import sys
 from datetime import UTC, datetime
 from pathlib import Path
 
-# Ensure root directory is on sys.path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 if sys.platform == "win32":
@@ -34,11 +36,12 @@ if sys.platform == "win32":
         pass
 
 from app import create_app
-from app.rag.embeddings import JinaEmbeddingProvider
+from app.rag.embeddings import get_embedding_provider
 from app.rag.service import RAGService
 
 
 def get_git_commit() -> str:
+    """Return the current repository commit for evaluation provenance."""
     try:
         res = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -52,7 +55,7 @@ def get_git_commit() -> str:
 
 
 def compute_percentile(data: list[float], p: float) -> float:
-    """Compute empirical percentile value from float series."""
+    """Compute an interpolated percentile value from a float series."""
     if not data:
         return 0.0
     sorted_data = sorted(data)
@@ -70,6 +73,7 @@ def evaluate_split(
     cases: list[dict],
     rag: RAGService,
 ) -> tuple[dict, list[dict]]:
+    """Evaluate one labeled split and return aggregate stats plus per-case evidence."""
     hits_at_4 = 0
     reciprocal_ranks: list[float] = []
     no_answer_correct = 0
@@ -82,25 +86,25 @@ def evaluate_split(
     case_results: list[dict] = []
 
     for tc in cases:
-        q = tc["query"]
+        query = tc["query"]
         expected_titles = tc["expected_document_titles"]
-        is_no_ans = tc["expected_no_answer"]
+        is_no_answer = tc["expected_no_answer"]
         split_name = tc.get("split", "calibration")
 
-        res = rag.retrieve(q)
-        latencies.append(res.latency_ms)
-        embed_times.append(res.diagnostics.embed_ms)
-        sem_times.append(res.diagnostics.semantic_ms)
-        lex_times.append(res.diagnostics.lexical_ms)
-        if res.diagnostics.retry_used:
+        result = rag.retrieve(query)
+        latencies.append(result.latency_ms)
+        embed_times.append(result.diagnostics.embed_ms)
+        sem_times.append(result.diagnostics.semantic_ms)
+        lex_times.append(result.diagnostics.lexical_ms)
+        if result.diagnostics.retry_used:
             retries += 1
 
-        retrieved_titles = [c.document_title for c in res.final_chunks]
-
+        retrieved_titles = [chunk.document_title for chunk in result.final_chunks]
         first_hit_rank = 0
-        if is_no_ans:
+
+        if is_no_answer:
             total_no_answer_cases += 1
-            is_correct = res.outcome == "NO_KNOWLEDGE" and len(res.final_chunks) == 0
+            is_correct = result.outcome == "NO_KNOWLEDGE" and len(result.final_chunks) == 0
             if is_correct:
                 no_answer_correct += 1
         else:
@@ -109,32 +113,36 @@ def evaluate_split(
                     first_hit_rank = rank
                     break
 
-            if first_hit_rank > 0:
+            reciprocal_ranks.append(1.0 / first_hit_rank if first_hit_rank else 0.0)
+            if first_hit_rank:
                 hits_at_4 += 1
-                reciprocal_ranks.append(1.0 / first_hit_rank)
-            else:
-                reciprocal_ranks.append(0.0)
 
         case_results.append(
             {
                 "id": tc["id"],
                 "split": split_name,
-                "query": q,
+                "query": query,
                 "language": tc["language"],
-                "outcome": res.outcome,
-                "expected_no_answer": is_no_ans,
+                "outcome": result.outcome,
+                "expected_no_answer": is_no_answer,
                 "first_rank": first_hit_rank
-                if not is_no_ans
-                else ("N/A (Correct)" if res.outcome == "NO_KNOWLEDGE" else "False Positive"),
-                "latency_ms": round(res.latency_ms, 1),
+                if not is_no_answer
+                else (
+                    "N/A (Correct)"
+                    if result.outcome == "NO_KNOWLEDGE" and len(result.final_chunks) == 0
+                    else "False Positive"
+                ),
+                "latency_ms": round(result.latency_ms, 1),
                 "retrieved": retrieved_titles,
             }
         )
 
     known_cases = len(cases) - total_no_answer_cases
-    recall_at_4 = (hits_at_4 / known_cases) if known_cases > 0 else 0.0
-    mrr = (sum(reciprocal_ranks) / len(reciprocal_ranks)) if reciprocal_ranks else 0.0
-    no_ans_acc = (no_answer_correct / total_no_answer_cases) if total_no_answer_cases > 0 else 0.0
+    recall_at_4 = hits_at_4 / known_cases if known_cases else 0.0
+    mrr = sum(reciprocal_ranks) / len(reciprocal_ranks) if reciprocal_ranks else 0.0
+    no_answer_accuracy = (
+        no_answer_correct / total_no_answer_cases if total_no_answer_cases else 0.0
+    )
     retry_rate = retries / len(cases) if cases else 0.0
 
     stats = {
@@ -145,7 +153,7 @@ def evaluate_split(
         "recall_at_4": recall_at_4,
         "mrr": mrr,
         "no_answer_correct": no_answer_correct,
-        "no_answer_accuracy": no_ans_acc,
+        "no_answer_accuracy": no_answer_accuracy,
         "retries": retries,
         "retry_rate": retry_rate,
         "avg_latency": sum(latencies) / len(latencies) if latencies else 0.0,
@@ -166,84 +174,97 @@ def main() -> int:
         print(f"ERROR: Evaluation cases file not found at {eval_file}")
         return 1
 
-    with open(eval_file, encoding="utf-8") as f:
-        cases = json.load(f)
+    with open(eval_file, encoding="utf-8") as file_handle:
+        cases = json.load(file_handle)
 
-    calibration_cases = [c for c in cases if c.get("split") == "calibration"]
-    holdout_cases = [c for c in cases if c.get("split") == "holdout"]
+    calibration_cases = [case for case in cases if case.get("split") == "calibration"]
+    validation_cases = [
+        case for case in cases if case.get("split") == "post_calibration_validation"
+    ]
+
+    if not calibration_cases or not validation_cases:
+        print("ERROR: Evaluation dataset must include calibration and validation cases.")
+        return 1
 
     app = create_app()
     with app.app_context():
-        api_key = app.config.get("JINA_API_KEY", "")
-        model = app.config.get("EMBEDDING_MODEL", "jina-embeddings-v3")
-        dimension = app.config.get("EMBEDDING_DIMENSION", 384)
+        provider = get_embedding_provider(app.config)
+        rag = RAGService(embedding_provider=provider)
         db_uri = app.config.get("SQLALCHEMY_DATABASE_URI", "")
         db_masked = db_uri.split("@")[-1] if "@" in db_uri else "database"
-
-        provider = JinaEmbeddingProvider(
-            api_key=api_key,
-            model=model,
-            dimension=dimension,
-        )
-        rag = RAGService(embedding_provider=provider)
+        model = app.config.get("EMBEDDING_MODEL", "jina-embeddings-v3")
+        dimension = app.config.get("EMBEDDING_DIMENSION", 384)
 
         print("=" * 75)
         print(
             f"MediLab AI — RAG Evaluation Runner ({len(cases)} cases: "
-            f"{len(calibration_cases)} calibration, {len(holdout_cases)} holdout)"
+            f"{len(calibration_cases)} calibration, "
+            f"{len(validation_cases)} post-calibration validation)"
         )
         print("=" * 75)
 
         cal_stats, cal_results = evaluate_split(calibration_cases, rag)
-        hold_stats, hold_results = evaluate_split(holdout_cases, rag)
-        all_results = cal_results + hold_results
+        val_stats, val_results = evaluate_split(validation_cases, rag)
+        all_results = cal_results + val_results
 
-        # Combined statistics
-        comb_latencies = [cr["latency_ms"] for cr in all_results]
-        comb_known = cal_stats["known_cases"] + hold_stats["known_cases"]
-        comb_hits = cal_stats["hits_at_4"] + hold_stats["hits_at_4"]
-        comb_recall = (comb_hits / comb_known) if comb_known > 0 else 0.0
-        comb_no_ans_total = cal_stats["no_answer_cases"] + hold_stats["no_answer_cases"]
-        comb_no_ans_correct = cal_stats["no_answer_correct"] + hold_stats["no_answer_correct"]
-        comb_no_ans_acc = (
-            (comb_no_ans_correct / comb_no_ans_total) if comb_no_ans_total > 0 else 0.0
+        combined_latencies = [case["latency_ms"] for case in all_results]
+        combined_known = cal_stats["known_cases"] + val_stats["known_cases"]
+        combined_hits = cal_stats["hits_at_4"] + val_stats["hits_at_4"]
+        combined_recall = combined_hits / combined_known if combined_known else 0.0
+        combined_no_answer_total = cal_stats["no_answer_cases"] + val_stats["no_answer_cases"]
+        combined_no_answer_correct = (
+            cal_stats["no_answer_correct"] + val_stats["no_answer_correct"]
         )
-        comb_retries = cal_stats["retries"] + hold_stats["retries"]
-        comb_retry_rate = (comb_retries / len(cases)) if cases else 0.0
-        comb_mrr = (
+        combined_no_answer_accuracy = (
+            combined_no_answer_correct / combined_no_answer_total
+            if combined_no_answer_total
+            else 0.0
+        )
+        combined_retries = cal_stats["retries"] + val_stats["retries"]
+        combined_retry_rate = combined_retries / len(cases) if cases else 0.0
+        combined_mrr = (
             (
-                (cal_stats["mrr"] * len(calibration_cases) + hold_stats["mrr"] * len(holdout_cases))
-                / len(cases)
+                cal_stats["mrr"] * cal_stats["known_cases"]
+                + val_stats["mrr"] * val_stats["known_cases"]
             )
-            if cases
+            / combined_known
+            if combined_known
             else 0.0
         )
 
-        comb_stats = {
-            "recall_at_4": comb_recall,
-            "hits_at_4": comb_hits,
-            "known_cases": comb_known,
-            "mrr": comb_mrr,
-            "no_answer_accuracy": comb_no_ans_acc,
-            "no_answer_correct": comb_no_ans_correct,
-            "no_answer_cases": comb_no_ans_total,
-            "retry_rate": comb_retry_rate,
-            "retries": comb_retries,
+        combined_stats = {
+            "recall_at_4": combined_recall,
+            "hits_at_4": combined_hits,
+            "known_cases": combined_known,
+            "mrr": combined_mrr,
+            "no_answer_accuracy": combined_no_answer_accuracy,
+            "no_answer_correct": combined_no_answer_correct,
+            "no_answer_cases": combined_no_answer_total,
+            "retry_rate": combined_retry_rate,
+            "retries": combined_retries,
             "total_cases": len(cases),
-            "avg_latency": sum(comb_latencies) / len(comb_latencies) if comb_latencies else 0.0,
-            "p50_latency": compute_percentile(comb_latencies, 50),
-            "p95_latency": compute_percentile(comb_latencies, 95),
-            "min_latency": min(comb_latencies) if comb_latencies else 0.0,
-            "max_latency": max(comb_latencies) if comb_latencies else 0.0,
+            "avg_latency": (
+                sum(combined_latencies) / len(combined_latencies) if combined_latencies else 0.0
+            ),
+            "p50_latency": compute_percentile(combined_latencies, 50),
+            "p95_latency": compute_percentile(combined_latencies, 95),
+            "min_latency": min(combined_latencies) if combined_latencies else 0.0,
+            "max_latency": max(combined_latencies) if combined_latencies else 0.0,
         }
 
-        # Dynamic status computation (never hard-coded)
-        recall_status = "PASS" if comb_stats["recall_at_4"] >= 0.90 else "FAIL"
-        mrr_status = "PASS" if comb_stats["mrr"] >= 0.85 else "FAIL"
-        no_ans_status = "PASS" if comb_stats["no_answer_accuracy"] >= 1.0 else "FAIL"
-        retry_status = "PASS" if comb_stats["retry_rate"] <= 0.20 else "FAIL"
-        latency_target_status = (
-            "PASS" if comb_stats["p95_latency"] < 500.0 else "TARGET MISSED / NEEDS OPTIMIZATION"
+        recall_status = "PASS" if combined_stats["recall_at_4"] >= 0.90 else "FAIL"
+        mrr_status = "PASS" if combined_stats["mrr"] >= 0.85 else "FAIL"
+        no_answer_status = (
+            "PASS" if combined_stats["no_answer_accuracy"] >= 1.0 else "FAIL"
+        )
+        retry_status = "PASS" if combined_stats["retry_rate"] <= 0.20 else "FAIL"
+        latency_status = (
+            "PASS"
+            if combined_stats["p95_latency"] < 500.0
+            else "TARGET MISSED / NEEDS OPTIMIZATION"
+        )
+        correctness_passed = all(
+            status == "PASS" for status in (recall_status, mrr_status, no_answer_status)
         )
 
         print("-" * 75)
@@ -251,52 +272,53 @@ def main() -> int:
         print(f"  Recall@4:              {cal_stats['recall_at_4'] * 100:.1f}%")
         print(f"  MRR:                   {cal_stats['mrr']:.4f}")
         print(f"  No-Answer Accuracy:    {cal_stats['no_answer_accuracy'] * 100:.1f}%")
-        print(f"[Independent Holdout] ({len(holdout_cases)} cases):")
-        print(f"  Recall@4:              {hold_stats['recall_at_4'] * 100:.1f}%")
-        print(f"  MRR:                   {hold_stats['mrr']:.4f}")
-        print(f"  No-Answer Accuracy:    {hold_stats['no_answer_accuracy'] * 100:.1f}%")
+        print(f"[Post-Calibration Validation] ({len(validation_cases)} cases):")
+        print(f"  Recall@4:              {val_stats['recall_at_4'] * 100:.1f}%")
+        print(f"  MRR:                   {val_stats['mrr']:.4f}")
+        print(f"  No-Answer Accuracy:    {val_stats['no_answer_accuracy'] * 100:.1f}%")
         print("-" * 75)
         print(f"[Combined Overall] ({len(cases)} cases):")
         print(
-            f"  Recall@4:              {comb_stats['recall_at_4'] * 100:.1f}% "
-            f"({comb_stats['hits_at_4']}/{comb_stats['known_cases']}) -> [{recall_status}]"
+            f"  Recall@4:              {combined_stats['recall_at_4'] * 100:.1f}% "
+            f"({combined_stats['hits_at_4']}/{combined_stats['known_cases']}) -> "
+            f"[{recall_status}]"
         )
-        print(f"  MRR:                   {comb_stats['mrr']:.4f} -> [{mrr_status}]")
+        print(f"  MRR:                   {combined_stats['mrr']:.4f} -> [{mrr_status}]")
         print(
-            f"  No-Answer Accuracy:    {comb_stats['no_answer_accuracy'] * 100:.1f}% "
-            f"({comb_stats['no_answer_correct']}/{comb_stats['no_answer_cases']}) -> [{no_ans_status}]"
-        )
-        print(
-            f"  Retry Rate:            {comb_stats['retry_rate'] * 100:.1f}% "
-            f"({comb_stats['retries']}/{comb_stats['total_cases']}) -> [{retry_status}]"
-        )
-        print(f"  Latency Average:       {comb_stats['avg_latency']:.1f}ms")
-        print(f"  Latency Median (P50):  {comb_stats['p50_latency']:.1f}ms")
-        print(
-            f"  Latency P95:           {comb_stats['p95_latency']:.1f}ms "
-            f"(Target: <500ms) -> [{latency_target_status}]"
+            f"  No-Answer Accuracy:    {combined_stats['no_answer_accuracy'] * 100:.1f}% "
+            f"({combined_stats['no_answer_correct']}/{combined_stats['no_answer_cases']}) -> "
+            f"[{no_answer_status}]"
         )
         print(
-            f"  Latency Min / Max:     {comb_stats['min_latency']:.1f}ms / {comb_stats['max_latency']:.1f}ms"
+            f"  Retry Rate:            {combined_stats['retry_rate'] * 100:.1f}% "
+            f"({combined_stats['retries']}/{combined_stats['total_cases']}) -> "
+            f"[{retry_status}]"
+        )
+        print(f"  Latency Average:       {combined_stats['avg_latency']:.1f}ms")
+        print(f"  Latency Median (P50):  {combined_stats['p50_latency']:.1f}ms")
+        print(
+            f"  Latency P95:           {combined_stats['p95_latency']:.1f}ms "
+            f"(Target: <500ms) -> [{latency_status}]"
+        )
+        print(
+            f"  Latency Min / Max:     {combined_stats['min_latency']:.1f}ms / "
+            f"{combined_stats['max_latency']:.1f}ms"
         )
         print("=" * 75)
 
-        # Generate markdown evaluation report
         report_dir = Path(__file__).resolve().parent.parent / "docs" / "evaluation"
         report_dir.mkdir(parents=True, exist_ok=True)
         report_path = report_dir / "phase2_rag_eval.md"
-
         commit_sha = get_git_commit()
         now_str = datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S UTC")
 
         table_rows = []
-        for cr in all_results:
-            row = (
-                f"| {cr['id']} | {cr['split']} | {cr['language'].upper()} | "
-                f"{cr['query'][:42]}... | {cr['outcome']} | {cr['first_rank']} | {cr['latency_ms']}ms |"
+        for case in all_results:
+            table_rows.append(
+                f"| {case['id']} | {case['split']} | {case['language'].upper()} | "
+                f"{case['query'][:42]}... | {case['outcome']} | {case['first_rank']} | "
+                f"{case['latency_ms']}ms |"
             )
-            table_rows.append(row)
-
         table_content = "\n".join(table_rows)
 
         report_content = f"""# MediLab AI — Phase 2 Hybrid RAG Evaluation Report
@@ -308,32 +330,34 @@ def main() -> int:
 - **Embedding Provider:** Jina AI
 - **Embedding Model:** `{model}`
 - **Vector Dimension:** `{dimension}`
-- **Evaluation Cases:** {len(cases)} cases ({len(calibration_cases)} calibration, {len(holdout_cases)} independent holdout)
+- **Evaluation Cases:** {len(cases)} cases ({len(calibration_cases)} calibration, {len(validation_cases)} post-calibration validation)
+
+> The validation split is intentionally not called an independent holdout. Some of these
+> cases were inspected during QA hardening, so these metrics are validation evidence rather
+> than an unbiased generalization estimate.
 
 ---
 
-## Executive Summary Metrics (Split Breakdown)
-
-### 1. Calibration vs Holdout Comparison
+## Executive Summary Metrics
 
 | Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Retry Rate | Avg Latency |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Calibration Set** | {len(calibration_cases)} | **{cal_stats["recall_at_4"] * 100:.1f}%** ({cal_stats["hits_at_4"]}/{cal_stats["known_cases"]}) | **{cal_stats["mrr"]:.4f}** | **{cal_stats["no_answer_accuracy"] * 100:.1f}%** | {cal_stats["retry_rate"] * 100:.1f}% | {cal_stats["avg_latency"]:.1f}ms |
-| **Independent Holdout** | {len(holdout_cases)} | **{hold_stats["recall_at_4"] * 100:.1f}%** ({hold_stats["hits_at_4"]}/{hold_stats["known_cases"]}) | **{hold_stats["mrr"]:.4f}** | **{hold_stats["no_answer_accuracy"] * 100:.1f}%** | {hold_stats["retry_rate"] * 100:.1f}% | {hold_stats["avg_latency"]:.1f}ms |
-| **Combined Overall** | {len(cases)} | **{comb_stats["recall_at_4"] * 100:.1f}%** ({comb_stats["hits_at_4"]}/{comb_stats["known_cases"]}) | **{comb_stats["mrr"]:.4f}** | **{comb_stats["no_answer_accuracy"] * 100:.1f}%** | {comb_stats["retry_rate"] * 100:.1f}% | {comb_stats["avg_latency"]:.1f}ms |
+| **Calibration Set** | {len(calibration_cases)} | **{cal_stats['recall_at_4'] * 100:.1f}%** ({cal_stats['hits_at_4']}/{cal_stats['known_cases']}) | **{cal_stats['mrr']:.4f}** | **{cal_stats['no_answer_accuracy'] * 100:.1f}%** | {cal_stats['retry_rate'] * 100:.1f}% | {cal_stats['avg_latency']:.1f}ms |
+| **Post-Calibration Validation** | {len(validation_cases)} | **{val_stats['recall_at_4'] * 100:.1f}%** ({val_stats['hits_at_4']}/{val_stats['known_cases']}) | **{val_stats['mrr']:.4f}** | **{val_stats['no_answer_accuracy'] * 100:.1f}%** | {val_stats['retry_rate'] * 100:.1f}% | {val_stats['avg_latency']:.1f}ms |
+| **Combined Overall** | {len(cases)} | **{combined_stats['recall_at_4'] * 100:.1f}%** ({combined_stats['hits_at_4']}/{combined_stats['known_cases']}) | **{combined_stats['mrr']:.4f}** | **{combined_stats['no_answer_accuracy'] * 100:.1f}%** | {combined_stats['retry_rate'] * 100:.1f}% | {combined_stats['avg_latency']:.1f}ms |
 
-### 2. Benchmark Target Evaluation
+## Benchmark Target Evaluation
 
 | Metric | Measured Value | Benchmark Target | Status |
 | :--- | :--- | :--- | :--- |
-| **Recall@4** | **{comb_stats["recall_at_4"] * 100:.1f}%** ({comb_stats["hits_at_4"]}/{comb_stats["known_cases"]}) | >= 90.0% | **{recall_status}** |
-| **MRR (Mean Reciprocal Rank)** | **{comb_stats["mrr"]:.4f}** | >= 0.8500 | **{mrr_status}** |
-| **No-Answer Accuracy** | **{comb_stats["no_answer_accuracy"] * 100:.1f}%** ({comb_stats["no_answer_correct"]}/{comb_stats["no_answer_cases"]}) | 100.0% | **{no_ans_status}** |
-| **Retry Rate** | **{comb_stats["retry_rate"] * 100:.1f}%** ({comb_stats["retries"]}/{comb_stats["total_cases"]}) | <= 20.0% | **{retry_status}** |
-| **P95 Latency (Internal SLA)** | **{comb_stats["p95_latency"]:.1f}ms** | < 500.0ms | **{latency_target_status}** |
-| **Median (P50) Latency** | **{comb_stats["p50_latency"]:.1f}ms** | Operational SLA | Informational |
-| **Average Total Latency** | **{comb_stats["avg_latency"]:.1f}ms** | Operational SLA | Informational |
-| **Min / Max Latency** | **{comb_stats["min_latency"]:.1f}ms / {comb_stats["max_latency"]:.1f}ms** | Range | Informational |
+| **Recall@4** | **{combined_stats['recall_at_4'] * 100:.1f}%** ({combined_stats['hits_at_4']}/{combined_stats['known_cases']}) | >= 90.0% | **{recall_status}** |
+| **MRR** | **{combined_stats['mrr']:.4f}** | >= 0.8500 | **{mrr_status}** |
+| **No-Answer Accuracy** | **{combined_stats['no_answer_accuracy'] * 100:.1f}%** ({combined_stats['no_answer_correct']}/{combined_stats['no_answer_cases']}) | 100.0% | **{no_answer_status}** |
+| **Retry Rate** | **{combined_stats['retry_rate'] * 100:.1f}%** ({combined_stats['retries']}/{combined_stats['total_cases']}) | <= 20.0% | **{retry_status}** |
+| **P95 Latency (Internal Target)** | **{combined_stats['p95_latency']:.1f}ms** | < 500.0ms | **{latency_status}** |
+| **Median (P50) Latency** | **{combined_stats['p50_latency']:.1f}ms** | Informational | Informational |
+| **Average Total Latency** | **{combined_stats['avg_latency']:.1f}ms** | Informational | Informational |
+| **Min / Max Latency** | **{combined_stats['min_latency']:.1f}ms / {combined_stats['max_latency']:.1f}ms** | Range | Informational |
 
 ---
 
@@ -345,18 +369,19 @@ def main() -> int:
 
 ---
 
-## Analysis & Domain Safety
-1. **Evaluation Split Integrity:** The benchmark explicitly separates the 15 calibration queries used during threshold tuning from the 5 independent holdout queries created after freezing thresholds. Performance generalizes across both sets.
-2. **Deterministic No-Answer:** Queries requesting unsupported procedures (MRI, CT scans, surgery, chemotherapy infusions) consistently yield `NO_KNOWLEDGE` without fabricating laboratory offerings.
-3. **Latency Profiling & Honest Target Assessment:**
-   - Internal project target of hybrid retrieval P95 < 500ms is currently **MISSED** (measured P95: ~{comb_stats["p95_latency"]:.1f}ms).
-   - Analysis indicates this latency is predominantly driven by public WAN round-trip latency to the external Jina AI Embeddings API (~700-1500ms) and cloud Supabase PostgreSQL connection (~300-800ms) from the Windows development environment.
-   - Core algorithmic execution (RRF fusion, signal-based grading, context assembly) takes < 2ms locally.
+## Evidence Notes
+1. Correctness target failures make this script exit non-zero.
+2. The latency target is engineering-only and non-blocking; misses are reported honestly.
+3. The post-calibration validation set is not an independent holdout because QA diagnostics inspected some cases.
+4. Unsupported services must remain `NO_KNOWLEDGE` with zero final chunks.
 """
-        with open(report_path, "w", encoding="utf-8") as f:
-            f.write(report_content)
+        with open(report_path, "w", encoding="utf-8") as file_handle:
+            file_handle.write(report_content)
 
         print(f"Report written to: {report_path}")
+        if not correctness_passed:
+            print("ERROR: One or more correctness acceptance targets failed.")
+            return 1
         return 0
 
 
