@@ -228,3 +228,26 @@ def test_seed_preserves_canonical_pdf_content_and_chunks(postgres_app, fake_prov
         assert preserved.version == original_version
         assert preserved.index_status == "READY"
         assert preserved_chunks == original_chunks
+
+
+def test_seed_does_not_deactivate_custom_knowledge(postgres_app) -> None:
+    """Canonical seed sync must not disable future CRUD/admin knowledge outside the PDF manifest."""
+    with postgres_app.app_context():
+        repo = KnowledgeRepository()
+        custom = repo.create_document(
+            title="Custom Admin FAQ",
+            category="FAQ",
+            content="Custom operational knowledge added through a future admin workflow.",
+            active=True,
+            index_status="PENDING",
+        )
+        db.session.commit()
+
+        seed_knowledge_documents()
+        db.session.commit()
+        db.session.expire_all()
+
+        preserved = repo.get_document_by_id(custom.id)
+        assert preserved is not None
+        assert preserved.active is True
+        assert preserved.title == "Custom Admin FAQ"
