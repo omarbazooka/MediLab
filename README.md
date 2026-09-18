@@ -366,7 +366,7 @@ Formatting count varies as the repository grows; use the command output from the
 
 The Docker job explicitly injects an ephemeral local `DATABASE_URL` for the web container; it does not use Supabase in CI.
 
-At the time of Phase 1 QA, GitHub-hosted Actions runs are failing before any step is assigned (`steps=[]`, Docker job skipped). This is treated as an external runner/startup issue, not as passing CI evidence. Local Docker/PostgreSQL and Supabase verification are the current runtime evidence.
+Through the current Phase 2 QA head, GitHub-hosted Actions continues to fail before any step is assigned (`steps=[]`, `runner_id=0`; Docker/PostgreSQL job skipped). A manual rerun reproduced the same platform-side startup failure. This is not application failure evidence, but it is also not a CI PASS. Historical local Docker/PostgreSQL and live Supabase runs remain evidence for the earlier tested working tree; the final head still requires a fresh executable gate before merge.
 
 ## Healthcare boundary
 
