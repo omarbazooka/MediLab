@@ -45,6 +45,13 @@ class KnowledgeIndexService:
         if doc is None:
             raise KnowledgeIndexingError(f"KnowledgeDocument {document_id} not found.")
 
+        existing_chunks = self.repository.get_chunks_by_document(doc.id)
+        if any((chunk.metadata_ or {}).get("source_type") == "pdf" for chunk in existing_chunks):
+            raise KnowledgeIndexingError(
+                "PDF-managed knowledge must be reindexed through PdfKnowledgeIngestionService "
+                "so section/page provenance is preserved."
+            )
+
         # 1. Transition to INDEXING
         self.repository.set_document_status(doc.id, "INDEXING")
         db.session.commit()
