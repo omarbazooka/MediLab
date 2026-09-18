@@ -93,9 +93,9 @@ def main() -> int:
         print(f"Force Re-index:    {args.force}")
         print("-" * 78)
 
-        # Initialize ingestion service
+        # Dry-run is parser/chunker validation only and must not require live Jina credentials.
         try:
-            embedding_provider = get_embedding_provider()
+            embedding_provider = None if args.dry_run else get_embedding_provider(app.config)
             service = PdfKnowledgeIngestionService(
                 embedding_provider=embedding_provider,
                 manifest_path=args.manifest,
@@ -110,8 +110,15 @@ def main() -> int:
             target_path = Path(args.file).resolve()
             print(f"Ingesting single document: {target_path.name}")
             try:
+                # Canonical corpus files must inherit title/category/version/active from the
+                # manifest; silently defaulting to category="General" can corrupt provenance.
+                entry = service.find_manifest_entry(target_path)
                 doc, status, detail = service.ingest_pdf_file(
                     file_path=target_path,
+                    title=entry["title"],
+                    category=entry["category"],
+                    version=entry.get("version", 1),
+                    active=entry.get("active", True),
                     dry_run=args.dry_run,
                     force=args.force,
                 )
@@ -152,7 +159,7 @@ def main() -> int:
                 print(
                     f"Summary: Total={counts['total']}, Ingested={counts['ingested']}, "
                     f"Updated={counts['updated']}, Unchanged={counts['unchanged']}, "
-                    f"Failed={counts['failed']}"
+                    f"DryRun={counts.get('dry_run', 0)}, Failed={counts['failed']}"
                 )
                 print(f"Total Elapsed Time: {elapsed:.1f}ms")
                 print("=" * 78)
