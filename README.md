@@ -68,7 +68,7 @@ Detailed decisions are recorded in `docs/decisions.md`.
 
 - **Durable app DB:** Supabase-hosted PostgreSQL via `DATABASE_URL`
 - **Disposable test DB:** Docker PostgreSQL + pgvector at `localhost:5432/medilab` via `TEST_DATABASE_URL`
-- **Embedding schema contract:** `intfloat/multilingual-e5-small`, `VECTOR(384)`
+- **Embedding schema contract:** `jina-embeddings-v3` via Jina AI, `VECTOR(384)`
 - **HOME visit:** separate one-to-one `home_visits` table
 - **Authoritative booking slot:** `Booking.availability_slot_id`
 - **HOME/BRANCH slot uniqueness:** PostgreSQL partial unique indexes
@@ -164,7 +164,7 @@ The current fictional seed baseline is:
 - 3 packages
 - 4 Cairo branches
 - 209 availability slots covering 15–25 September 2026
-- 4 non-clinical knowledge documents with `index_status='PENDING'`
+- 7 canonical PDF-backed knowledge document records from `knowledge/knowledge_manifest.json` (bootstrapped as `PENDING` before PDF ingestion)
 
 Running the seed twice is verified to keep the same entity counts without duplicate rows.
 
@@ -210,19 +210,27 @@ uv run python scripts/ingest_knowledge_pdfs.py --file knowledge/pdfs/01_Patient_
 uv run python scripts/ingest_knowledge_pdfs.py --all --force
 ```
 
-### 3. Knowledge base indexing & synchronization
-Index all active seeded knowledge documents:
+### 3. Knowledge base re-indexing & synchronization
+Canonical PDF-backed documents are always routed back through the PDF ingestion pipeline so section/page provenance cannot be destroyed by the legacy plain-text chunker. The safe reindex CLI handles this routing automatically:
 
 ```bash
 uv run python scripts/reindex_knowledge.py --all
 ```
 
-Index a specific document by ID or retry failed documents:
+Reindex a specific document by ID or retry failed documents:
 
 ```bash
 uv run python scripts/reindex_knowledge.py --document-id 1
 uv run python scripts/reindex_knowledge.py --failed
 ```
+
+For a direct canonical corpus refresh, this is also valid:
+
+```bash
+uv run python scripts/ingest_knowledge_pdfs.py --all --force
+```
+
+`--dry-run` is strictly read-only and does not require a Jina API key.
 
 ### 4. Interactive RAG retrieval verification
 Run benchmark queries (Arabic, English, preparation, complaints, privacy, and unsupported queries) against the indexed PDF knowledge base:
@@ -339,7 +347,8 @@ Verified result:
 
 ```text
 All checks passed
-51 files already formatted
+
+Formatting count varies as the repository grows; use the command output from the current commit as the authoritative evidence.
 ```
 
 ## CI
@@ -363,8 +372,18 @@ MediLab AI is not clinical decision support. The project must not diagnose, inte
 - `TESTED`: automated evidence passes
 - `LIVE_VERIFIED`: real runtime/database evidence proves the behavior
 
-Phase 1 should only be marked complete after independent QA accepts the current PR/commit.
+Phase 2 should only be marked complete after independent QA accepts the current PR/commit and the current-head runtime gates pass.
 
 ## Next phase
 
-Phase 2 implements RAG independently of LangGraph: managed knowledge lifecycle, chunking/embeddings, pgvector + PostgreSQL FTS hybrid retrieval, RRF, retrieval grading, bounded retry, and CRUD synchronization.
+Phase 3 integrates this independently tested RAG service into the single LangGraph conversation orchestrator, including context loading, safety, intent understanding, clarification, routing, response composition, validation, and persisted multi-turn state.
+
+
+## PDF ingestion safety invariants
+
+- The seven manifest PDFs are the canonical source for PDF-backed RAG knowledge.
+- `seed_db.py` never overwrites already-ingested PDF content with bootstrap placeholder text.
+- A failed refresh of an existing `READY` PDF document preserves the last-known-good version and chunks; the sanitized failure is recorded in `index_error`.
+- The legacy plain-text indexer refuses PDF-managed chunks. Safe reindexing routes them through `PdfKnowledgeIngestionService`.
+- Single-file PDF ingestion must resolve manifest metadata; unknown files are rejected instead of silently defaulting to a generic category.
+- `--dry-run` performs parse/chunk validation only: no DB mutation, no version bump, no status change, and no embedding API call.
