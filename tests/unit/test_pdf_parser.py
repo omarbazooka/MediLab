@@ -160,3 +160,18 @@ def test_pdf_parser_malformed_pdf_raises(tmp_path: Path):
     parser = PdfParser()
     with pytest.raises(PdfParsingError, match="failed to open PDF"):
         parser.parse(malformed)
+
+
+def test_pdf_parser_sorts_blocks_by_reading_order(tmp_path: Path):
+    """Visual reading order must win over PDF object insertion order."""
+    pdf_path = tmp_path / "reading_order.pdf"
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((50, 220), "2. Second Section\nSecond section body.")
+    page.insert_text((50, 100), "1. First Section\nFirst section body.")
+    doc.save(str(pdf_path))
+    doc.close()
+
+    parsed = PdfParser().parse(pdf_path, title="Reading Order Guide")
+    numbered = [section.title for section in parsed.sections if section.section_number]
+    assert numbered[:2] == ["1. First Section", "2. Second Section"]
