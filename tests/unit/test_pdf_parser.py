@@ -151,3 +151,12 @@ def test_pdf_parser_running_header_suppression(sample_pdf: Path):
     parsed = parser.parse(sample_pdf)
     for section in parsed.sections:
         assert "MediLab AI Assessment - Knowledge Base Document" not in section.content
+
+
+def test_pdf_parser_malformed_pdf_raises(tmp_path: Path):
+    """Verify a corrupt .pdf file fails with a controlled parser error."""
+    malformed = tmp_path / "malformed.pdf"
+    malformed.write_text("not a valid PDF document", encoding="utf-8")
+    parser = PdfParser()
+    with pytest.raises(PdfParsingError, match="failed to open PDF"):
+        parser.parse(malformed)
