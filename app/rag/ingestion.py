@@ -105,12 +105,19 @@ class PdfKnowledgeIngestionService:
         Single-file ingestion of the repository corpus must use manifest metadata so a PDF
         cannot silently become a second document with category='General'.
         """
-        source_name = Path(file_path).name
+        resolved_path = Path(file_path).resolve()
+        source_name = resolved_path.name
         for entry in self.load_manifest():
             if entry["source_file"] == source_name:
                 if not entry.get("rag_use", True):
                     raise ValueError(
                         f"Source PDF '{source_name}' is declared in the manifest but is not enabled for RAG."
+                    )
+                canonical_path = (self.pdfs_dir / source_name).resolve()
+                if resolved_path != canonical_path:
+                    raise ValueError(
+                        f"Source PDF '{source_name}' must be ingested from the canonical corpus path: "
+                        f"{canonical_path}"
                     )
                 return entry
         raise ValueError(
