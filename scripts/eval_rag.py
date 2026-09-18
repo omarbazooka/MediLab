@@ -293,12 +293,12 @@ def main() -> int:
         print(f"  Recall@4:              {cal_stats['recall_at_4'] * 100:.1f}%")
         print(f"  MRR:                   {cal_stats['mrr']:.4f}")
         print(f"  No-Answer Accuracy:    {cal_stats['no_answer_accuracy'] * 100:.1f}%")
-        print(f"  Section-Title Accuracy:{cal_stats['section_accuracy'] * 100:.1f}%")
+        print(f"  Section Recall@4:{cal_stats['section_accuracy'] * 100:.1f}%")
         print(f"[Post-Calibration Validation] ({len(validation_cases)} cases):")
         print(f"  Recall@4:              {val_stats['recall_at_4'] * 100:.1f}%")
         print(f"  MRR:                   {val_stats['mrr']:.4f}")
         print(f"  No-Answer Accuracy:    {val_stats['no_answer_accuracy'] * 100:.1f}%")
-        print(f"  Section-Title Accuracy:{val_stats['section_accuracy'] * 100:.1f}%")
+        print(f"  Section Recall@4:{val_stats['section_accuracy'] * 100:.1f}%")
         print("-" * 75)
         print(f"[Combined Overall] ({len(cases)} cases):")
         print(
@@ -313,7 +313,7 @@ def main() -> int:
             f"[{no_answer_status}]"
         )
         print(
-            f"  Section-Title Accuracy:{combined_stats['section_accuracy'] * 100:.1f}% "
+            f"  Section Recall@4:{combined_stats['section_accuracy'] * 100:.1f}% "
             f"({combined_stats['section_hits']}/{combined_stats['section_cases']}) -> "
             f"[Measured]"
         )
@@ -368,7 +368,7 @@ def main() -> int:
 
 ## Executive Summary Metrics
 
-| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Section Accuracy | Retry Rate | Avg Latency |
+| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Section Recall@4 | Retry Rate | Avg Latency |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Calibration Set** | {len(calibration_cases)} | **{cal_stats["recall_at_4"] * 100:.1f}%** ({cal_stats["hits_at_4"]}/{cal_stats["known_cases"]}) | **{cal_stats["mrr"]:.4f}** | **{cal_stats["no_answer_accuracy"] * 100:.1f}%** | {cal_stats["section_accuracy"] * 100:.1f}% | {cal_stats["retry_rate"] * 100:.1f}% | {cal_stats["avg_latency"]:.1f}ms |
 | **Post-Calibration Validation** | {len(validation_cases)} | **{val_stats["recall_at_4"] * 100:.1f}%** ({val_stats["hits_at_4"]}/{val_stats["known_cases"]}) | **{val_stats["mrr"]:.4f}** | **{val_stats["no_answer_accuracy"] * 100:.1f}%** | {val_stats["section_accuracy"] * 100:.1f}% | {val_stats["retry_rate"] * 100:.1f}% | {val_stats["avg_latency"]:.1f}ms |
@@ -381,7 +381,7 @@ def main() -> int:
 | **Recall@4** | **{combined_stats["recall_at_4"] * 100:.1f}%** ({combined_stats["hits_at_4"]}/{combined_stats["known_cases"]}) | >= 90.0% | **{recall_status}** |
 | **MRR** | **{combined_stats["mrr"]:.4f}** | >= 0.8500 | **{mrr_status}** |
 | **No-Answer Accuracy** | **{combined_stats["no_answer_accuracy"] * 100:.1f}%** ({combined_stats["no_answer_correct"]}/{combined_stats["no_answer_cases"]}) | 100.0% | **{no_answer_status}** |
-| **Section-Title Accuracy** | **{combined_stats["section_accuracy"] * 100:.1f}%** ({combined_stats["section_hits"]}/{combined_stats["section_cases"]}) | Informational / Observable | **Measured ({combined_stats["section_hits"]}/{combined_stats["section_cases"]})** |
+| **Section Recall@4** | **{combined_stats["section_accuracy"] * 100:.1f}%** ({combined_stats["section_hits"]}/{combined_stats["section_cases"]}) | Informational / Observable | **Measured ({combined_stats["section_hits"]}/{combined_stats["section_cases"]})** |
 | **Retry Rate** | **{combined_stats["retry_rate"] * 100:.1f}%** ({combined_stats["retries"]}/{combined_stats["total_cases"]}) | <= 20.0% | **{retry_status}** |
 | **P95 Latency (Internal Target)** | **{combined_stats["p95_latency"]:.1f}ms** | < 500.0ms | **{latency_status}** |
 | **Median (P50) Latency** | **{combined_stats["p50_latency"]:.1f}ms** | Informational | Informational |
