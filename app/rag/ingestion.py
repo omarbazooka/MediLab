@@ -191,39 +191,15 @@ class PdfKnowledgeIngestionService:
             existing_doc
             and (
                 existing_doc.category != effective_category
-                or existing_doc.active is not active
+                or existing_doc.active != active
             )
         )
-
-        if (
-            existing_doc
-            and not force
-            and existing_doc.index_status == "READY"
-            and existing_hash == file_hash
-            and not metadata_changed
-        ):
-            logger.info(
-                "Document '%s' (id=%d) unchanged (hash=%s). Skipping.",
-                effective_title,
-                existing_doc.id,
-                file_hash[:12],
-            )
-            return (
-                existing_doc,
-                "UNCHANGED",
-                {
-                    "document_id": existing_doc.id,
-                    "title": effective_title,
-                    "chunks_count": len(existing_chunks),
-                    "hash": file_hash,
-                },
-            )
 
         is_update = existing_doc is not None
         target_version = existing_doc.version + 1 if existing_doc else version
 
-        # Dry-run is strictly read-only. It must not create, update, version-bump, or change
-        # status on an existing KnowledgeDocument, and it never requires an embedding provider.
+        # Dry-run is strictly read-only and always validates structure-aware chunking,
+        # even when the current stored hash already matches the source file.
         if dry_run:
             dry_specs = chunk_parsed_document(
                 parsed_doc=parsed_doc,
@@ -243,6 +219,33 @@ class PdfKnowledgeIngestionService:
                     "sections_count": len(parsed_doc.sections),
                     "chunks_count": len(dry_specs),
                     "pages": parsed_doc.total_pages,
+                    "hash": file_hash,
+                },
+            )
+
+        if (
+            existing_doc
+            and not force
+            and existing_doc.index_status == "READY"
+            and existing_hash == file_hash
+            and not metadata_changed
+        ):
+            logger.info(
+                "Document '%s' (id=%d) unchanged (hash=%s). Skipping.",
+                effective_title,
+                existing_doc.id,
+                file_hash[:12],
+            )
+            if existing_doc.index_error:
+                existing_doc.index_error = None
+                db.session.commit()
+            return (
+                existing_doc,
+                "UNCHANGED",
+                {
+                    "document_id": existing_doc.id,
+                    "title": effective_title,
+                    "chunks_count": len(existing_chunks),
                     "hash": file_hash,
                 },
             )
