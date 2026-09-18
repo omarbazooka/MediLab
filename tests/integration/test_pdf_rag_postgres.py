@@ -10,6 +10,8 @@ Validates:
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import pymupdf as fitz
 import pytest
 
@@ -188,7 +190,7 @@ def test_plain_indexer_refuses_pdf_managed_document(
 
 def test_seed_preserves_canonical_pdf_content_and_chunks(postgres_app, fake_provider) -> None:
     """Running database seed after live PDF ingestion must not replace PDF text with placeholders."""
-    repo_root = __import__("pathlib").Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[2]
     pdf_path = (
         repo_root
         / "knowledge"
