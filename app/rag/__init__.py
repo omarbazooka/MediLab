@@ -30,6 +30,10 @@ def __getattr__(name: str) -> Any:
         from app.rag.service import RAGRetrievalError, RAGService
 
         return RAGService if name == "RAGService" else RAGRetrievalError
+    if name == "PdfKnowledgeIngestionService":
+        from app.rag.ingestion import PdfKnowledgeIngestionService
+
+        return PdfKnowledgeIngestionService
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 
 
@@ -42,6 +46,7 @@ __all__ = [
     "JinaEmbeddingProvider",
     "KnowledgeIndexService",
     "KnowledgeIndexingError",
+    "PdfKnowledgeIngestionService",
     "RAGResult",
     "RAGRetrievalError",
     "RAGService",

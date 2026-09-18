@@ -78,6 +78,8 @@ def evaluate_split(
     reciprocal_ranks: list[float] = []
     no_answer_correct = 0
     total_no_answer_cases = 0
+    section_cases = 0
+    section_hits = 0
     retries = 0
     latencies: list[float] = []
     embed_times: list[float] = []
@@ -88,6 +90,7 @@ def evaluate_split(
     for tc in cases:
         query = tc["query"]
         expected_titles = tc["expected_document_titles"]
+        expected_section = tc.get("expected_section")
         is_no_answer = tc["expected_no_answer"]
         split_name = tc.get("split", "calibration")
 
@@ -117,6 +120,18 @@ def evaluate_split(
             if first_hit_rank:
                 hits_at_4 += 1
 
+            if expected_section:
+                section_cases += 1
+                sec_match = False
+                for ch in result.final_chunks[:4]:
+                    meta = ch.source_metadata or {}
+                    sec_title = meta.get("section_title") or ""
+                    if expected_section.lower() in sec_title.lower():
+                        sec_match = True
+                        break
+                if sec_match:
+                    section_hits += 1
+
         case_results.append(
             {
                 "id": tc["id"],
@@ -140,9 +155,8 @@ def evaluate_split(
     known_cases = len(cases) - total_no_answer_cases
     recall_at_4 = hits_at_4 / known_cases if known_cases else 0.0
     mrr = sum(reciprocal_ranks) / len(reciprocal_ranks) if reciprocal_ranks else 0.0
-    no_answer_accuracy = (
-        no_answer_correct / total_no_answer_cases if total_no_answer_cases else 0.0
-    )
+    no_answer_accuracy = no_answer_correct / total_no_answer_cases if total_no_answer_cases else 0.0
+    section_accuracy = section_hits / section_cases if section_cases else 1.0
     retry_rate = retries / len(cases) if cases else 0.0
 
     stats = {
@@ -154,6 +168,9 @@ def evaluate_split(
         "mrr": mrr,
         "no_answer_correct": no_answer_correct,
         "no_answer_accuracy": no_answer_accuracy,
+        "section_cases": section_cases,
+        "section_hits": section_hits,
+        "section_accuracy": section_accuracy,
         "retries": retries,
         "retry_rate": retry_rate,
         "avg_latency": sum(latencies) / len(latencies) if latencies else 0.0,
@@ -212,9 +229,7 @@ def main() -> int:
         combined_hits = cal_stats["hits_at_4"] + val_stats["hits_at_4"]
         combined_recall = combined_hits / combined_known if combined_known else 0.0
         combined_no_answer_total = cal_stats["no_answer_cases"] + val_stats["no_answer_cases"]
-        combined_no_answer_correct = (
-            cal_stats["no_answer_correct"] + val_stats["no_answer_correct"]
-        )
+        combined_no_answer_correct = cal_stats["no_answer_correct"] + val_stats["no_answer_correct"]
         combined_no_answer_accuracy = (
             combined_no_answer_correct / combined_no_answer_total
             if combined_no_answer_total
@@ -231,6 +246,11 @@ def main() -> int:
             if combined_known
             else 0.0
         )
+        combined_section_cases = cal_stats["section_cases"] + val_stats["section_cases"]
+        combined_section_hits = cal_stats["section_hits"] + val_stats["section_hits"]
+        combined_section_accuracy = (
+            combined_section_hits / combined_section_cases if combined_section_cases else 1.0
+        )
 
         combined_stats = {
             "recall_at_4": combined_recall,
@@ -240,6 +260,9 @@ def main() -> int:
             "no_answer_accuracy": combined_no_answer_accuracy,
             "no_answer_correct": combined_no_answer_correct,
             "no_answer_cases": combined_no_answer_total,
+            "section_accuracy": combined_section_accuracy,
+            "section_hits": combined_section_hits,
+            "section_cases": combined_section_cases,
             "retry_rate": combined_retry_rate,
             "retries": combined_retries,
             "total_cases": len(cases),
@@ -254,9 +277,7 @@ def main() -> int:
 
         recall_status = "PASS" if combined_stats["recall_at_4"] >= 0.90 else "FAIL"
         mrr_status = "PASS" if combined_stats["mrr"] >= 0.85 else "FAIL"
-        no_answer_status = (
-            "PASS" if combined_stats["no_answer_accuracy"] >= 1.0 else "FAIL"
-        )
+        no_answer_status = "PASS" if combined_stats["no_answer_accuracy"] >= 1.0 else "FAIL"
         retry_status = "PASS" if combined_stats["retry_rate"] <= 0.20 else "FAIL"
         latency_status = (
             "PASS"
@@ -272,10 +293,12 @@ def main() -> int:
         print(f"  Recall@4:              {cal_stats['recall_at_4'] * 100:.1f}%")
         print(f"  MRR:                   {cal_stats['mrr']:.4f}")
         print(f"  No-Answer Accuracy:    {cal_stats['no_answer_accuracy'] * 100:.1f}%")
+        print(f"  Section-Title Accuracy:{cal_stats['section_accuracy'] * 100:.1f}%")
         print(f"[Post-Calibration Validation] ({len(validation_cases)} cases):")
         print(f"  Recall@4:              {val_stats['recall_at_4'] * 100:.1f}%")
         print(f"  MRR:                   {val_stats['mrr']:.4f}")
         print(f"  No-Answer Accuracy:    {val_stats['no_answer_accuracy'] * 100:.1f}%")
+        print(f"  Section-Title Accuracy:{val_stats['section_accuracy'] * 100:.1f}%")
         print("-" * 75)
         print(f"[Combined Overall] ({len(cases)} cases):")
         print(
@@ -288,6 +311,11 @@ def main() -> int:
             f"  No-Answer Accuracy:    {combined_stats['no_answer_accuracy'] * 100:.1f}% "
             f"({combined_stats['no_answer_correct']}/{combined_stats['no_answer_cases']}) -> "
             f"[{no_answer_status}]"
+        )
+        print(
+            f"  Section-Title Accuracy:{combined_stats['section_accuracy'] * 100:.1f}% "
+            f"({combined_stats['section_hits']}/{combined_stats['section_cases']}) -> "
+            f"[Measured]"
         )
         print(
             f"  Retry Rate:            {combined_stats['retry_rate'] * 100:.1f}% "
@@ -340,24 +368,25 @@ def main() -> int:
 
 ## Executive Summary Metrics
 
-| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Retry Rate | Avg Latency |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Calibration Set** | {len(calibration_cases)} | **{cal_stats['recall_at_4'] * 100:.1f}%** ({cal_stats['hits_at_4']}/{cal_stats['known_cases']}) | **{cal_stats['mrr']:.4f}** | **{cal_stats['no_answer_accuracy'] * 100:.1f}%** | {cal_stats['retry_rate'] * 100:.1f}% | {cal_stats['avg_latency']:.1f}ms |
-| **Post-Calibration Validation** | {len(validation_cases)} | **{val_stats['recall_at_4'] * 100:.1f}%** ({val_stats['hits_at_4']}/{val_stats['known_cases']}) | **{val_stats['mrr']:.4f}** | **{val_stats['no_answer_accuracy'] * 100:.1f}%** | {val_stats['retry_rate'] * 100:.1f}% | {val_stats['avg_latency']:.1f}ms |
-| **Combined Overall** | {len(cases)} | **{combined_stats['recall_at_4'] * 100:.1f}%** ({combined_stats['hits_at_4']}/{combined_stats['known_cases']}) | **{combined_stats['mrr']:.4f}** | **{combined_stats['no_answer_accuracy'] * 100:.1f}%** | {combined_stats['retry_rate'] * 100:.1f}% | {combined_stats['avg_latency']:.1f}ms |
+| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Section Accuracy | Retry Rate | Avg Latency |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Calibration Set** | {len(calibration_cases)} | **{cal_stats["recall_at_4"] * 100:.1f}%** ({cal_stats["hits_at_4"]}/{cal_stats["known_cases"]}) | **{cal_stats["mrr"]:.4f}** | **{cal_stats["no_answer_accuracy"] * 100:.1f}%** | {cal_stats["section_accuracy"] * 100:.1f}% | {cal_stats["retry_rate"] * 100:.1f}% | {cal_stats["avg_latency"]:.1f}ms |
+| **Post-Calibration Validation** | {len(validation_cases)} | **{val_stats["recall_at_4"] * 100:.1f}%** ({val_stats["hits_at_4"]}/{val_stats["known_cases"]}) | **{val_stats["mrr"]:.4f}** | **{val_stats["no_answer_accuracy"] * 100:.1f}%** | {val_stats["section_accuracy"] * 100:.1f}% | {val_stats["retry_rate"] * 100:.1f}% | {val_stats["avg_latency"]:.1f}ms |
+| **Combined Overall** | {len(cases)} | **{combined_stats["recall_at_4"] * 100:.1f}%** ({combined_stats["hits_at_4"]}/{combined_stats["known_cases"]}) | **{combined_stats["mrr"]:.4f}** | **{combined_stats["no_answer_accuracy"] * 100:.1f}%** | {combined_stats["section_accuracy"] * 100:.1f}% | {combined_stats["retry_rate"] * 100:.1f}% | {combined_stats["avg_latency"]:.1f}ms |
 
 ## Benchmark Target Evaluation
 
 | Metric | Measured Value | Benchmark Target | Status |
 | :--- | :--- | :--- | :--- |
-| **Recall@4** | **{combined_stats['recall_at_4'] * 100:.1f}%** ({combined_stats['hits_at_4']}/{combined_stats['known_cases']}) | >= 90.0% | **{recall_status}** |
-| **MRR** | **{combined_stats['mrr']:.4f}** | >= 0.8500 | **{mrr_status}** |
-| **No-Answer Accuracy** | **{combined_stats['no_answer_accuracy'] * 100:.1f}%** ({combined_stats['no_answer_correct']}/{combined_stats['no_answer_cases']}) | 100.0% | **{no_answer_status}** |
-| **Retry Rate** | **{combined_stats['retry_rate'] * 100:.1f}%** ({combined_stats['retries']}/{combined_stats['total_cases']}) | <= 20.0% | **{retry_status}** |
-| **P95 Latency (Internal Target)** | **{combined_stats['p95_latency']:.1f}ms** | < 500.0ms | **{latency_status}** |
-| **Median (P50) Latency** | **{combined_stats['p50_latency']:.1f}ms** | Informational | Informational |
-| **Average Total Latency** | **{combined_stats['avg_latency']:.1f}ms** | Informational | Informational |
-| **Min / Max Latency** | **{combined_stats['min_latency']:.1f}ms / {combined_stats['max_latency']:.1f}ms** | Range | Informational |
+| **Recall@4** | **{combined_stats["recall_at_4"] * 100:.1f}%** ({combined_stats["hits_at_4"]}/{combined_stats["known_cases"]}) | >= 90.0% | **{recall_status}** |
+| **MRR** | **{combined_stats["mrr"]:.4f}** | >= 0.8500 | **{mrr_status}** |
+| **No-Answer Accuracy** | **{combined_stats["no_answer_accuracy"] * 100:.1f}%** ({combined_stats["no_answer_correct"]}/{combined_stats["no_answer_cases"]}) | 100.0% | **{no_answer_status}** |
+| **Section-Title Accuracy** | **{combined_stats["section_accuracy"] * 100:.1f}%** ({combined_stats["section_hits"]}/{combined_stats["section_cases"]}) | Informational / Observable | **Measured ({combined_stats["section_hits"]}/{combined_stats["section_cases"]})** |
+| **Retry Rate** | **{combined_stats["retry_rate"] * 100:.1f}%** ({combined_stats["retries"]}/{combined_stats["total_cases"]}) | <= 20.0% | **{retry_status}** |
+| **P95 Latency (Internal Target)** | **{combined_stats["p95_latency"]:.1f}ms** | < 500.0ms | **{latency_status}** |
+| **Median (P50) Latency** | **{combined_stats["p50_latency"]:.1f}ms** | Informational | Informational |
+| **Average Total Latency** | **{combined_stats["avg_latency"]:.1f}ms** | Informational | Informational |
+| **Min / Max Latency** | **{combined_stats["min_latency"]:.1f}ms / {combined_stats["max_latency"]:.1f}ms** | Range | Informational |
 
 ---
 

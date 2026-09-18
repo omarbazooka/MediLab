@@ -57,10 +57,17 @@ def build_retrieval_context(
 
     passages: list[str] = []
     for idx, chunk in enumerate(selected_chunks, start=1):
-        header = (
-            f"[Source {idx}: {chunk.document_title} ({chunk.document_category}) "
-            f"- v{chunk.document_version} #{chunk.chunk_index}]"
-        )
+        provenance_parts = [f"{chunk.document_title} ({chunk.document_category})"]
+        if chunk.section_title:
+            provenance_parts.append(f"Section: {chunk.section_title}")
+        if chunk.page_start:
+            if chunk.page_end and chunk.page_end != chunk.page_start:
+                provenance_parts.append(f"pp. {chunk.page_start}-{chunk.page_end}")
+            else:
+                provenance_parts.append(f"p. {chunk.page_start}")
+        provenance_parts.append(f"v{chunk.document_version} #{chunk.chunk_index}")
+
+        header = f"[Source {idx}: {' | '.join(provenance_parts)}]"
         passages.append(f"{header}\n{chunk.content}")
 
     return RetrievalContext(

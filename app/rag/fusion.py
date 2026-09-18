@@ -37,6 +37,7 @@ def reciprocal_rank_fusion(
             semantic_rank=rank,
             cosine_distance=sc.cosine_distance,
             rrf_score=score,
+            chunk_metadata=dict(sc.chunk_metadata) if sc.chunk_metadata else {},
         )
 
     # 2. Ingest lexical candidates and fuse
@@ -47,6 +48,8 @@ def reciprocal_rank_fusion(
             chunk.lexical_rank = rank
             chunk.fts_score = lc.fts_score
             chunk.rrf_score += score
+            if not chunk.chunk_metadata and lc.chunk_metadata:
+                chunk.chunk_metadata = dict(lc.chunk_metadata)
         else:
             merged[lc.chunk_id] = RetrievedChunk(
                 chunk_id=lc.chunk_id,
@@ -59,6 +62,7 @@ def reciprocal_rank_fusion(
                 lexical_rank=rank,
                 fts_score=lc.fts_score,
                 rrf_score=score,
+                chunk_metadata=dict(lc.chunk_metadata) if lc.chunk_metadata else {},
             )
 
     # Deterministic sort: descending RRF score, ascending chunk_id for tie-breaking

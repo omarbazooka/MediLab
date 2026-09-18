@@ -223,6 +223,7 @@ class KnowledgeRepository:
                         content=chunk.content,
                         cosine_distance=float(dist) if dist is not None else 1.0,
                         semantic_rank=len(candidates) + 1,
+                        chunk_metadata=chunk.metadata_ or {},
                     )
                 )
                 if len(candidates) >= top_k:
@@ -273,6 +274,7 @@ class KnowledgeRepository:
                     content=chunk.content,
                     cosine_distance=dist,
                     semantic_rank=len(candidates) + 1,
+                    chunk_metadata=chunk.metadata_ or {},
                 )
             )
         return candidates
@@ -381,9 +383,7 @@ class KnowledgeRepository:
             if document_ids:
                 stmt = stmt.where(KnowledgeDocument.id.in_(document_ids))
 
-            stmt = stmt.order_by(rank_expr.desc(), KnowledgeChunk.id.asc()).limit(
-                candidate_window
-            )
+            stmt = stmt.order_by(rank_expr.desc(), KnowledgeChunk.id.asc()).limit(candidate_window)
             rows = db.session.execute(stmt).all()
 
             candidates: list[LexicalCandidate] = []
@@ -401,6 +401,7 @@ class KnowledgeRepository:
                         content=chunk.content,
                         fts_score=float(score) if score is not None else 0.0,
                         lexical_rank=len(candidates) + 1,
+                        chunk_metadata=chunk.metadata_ or {},
                     )
                 )
                 if len(candidates) >= top_k:
@@ -451,6 +452,7 @@ class KnowledgeRepository:
                     content=chunk.content,
                     fts_score=score,
                     lexical_rank=len(candidates) + 1,
+                    chunk_metadata=chunk.metadata_ or {},
                 )
             )
         return candidates

@@ -10,22 +10,47 @@ MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessm
 
 Implemented and verified:
 
-- Jina AI embeddings (`jina-embeddings-v3` @ 384 dimensions via Matryoshka truncation)
-- Explicit task conditioning: `retrieval.passage` for document chunks, `retrieval.query` for search queries
-- Deterministic paragraph-aware / word-bounded chunker supporting Arabic and English
-- Atomic knowledge indexing lifecycle: `PENDING` -> `INDEXING` -> `READY` / `FAILED`
-- PostgreSQL pgvector cosine distance (`<=>`) semantic search (top 8)
-- PostgreSQL Full-Text Search against `search_vector` with `simple` dictionary (top 8)
-- Reciprocal Rank Fusion (RRF with $k=60$) combining semantic and lexical scores
-- Deterministic context-aware query rewrite baseline with Arabic/English pronoun ambiguity detection
-- Signal-based retrieval grader: `GOOD`, `WEAK_RETRY`, `AMBIGUOUS_USER_QUERY`, `NO_KNOWLEDGE`
-- Bounded retry: maximum of 1 alternate query retry on `WEAK_RETRY` (capped at 2 attempts)
-- Context assembly: top 3–4 deduplicated chunks preserving document title, category, and chunk provenance
-- Degraded mode: graceful single-arm fallback if semantic or lexical arm fails
-- Full CRUD synchronization: Add, Update (version increment & chunk replacement), Delete, Deactivate
-- Standalone RAG CLI utilities and evaluation runner measuring Recall@4 and MRR
-- Zero LangGraph / Zero LLM generation (deferred to Phase 3)
-- Zero database migrations required (`VECTOR(384)` schema preserved)
+- **Custom Python RAG Pipeline:** PyMuPDF for PDF parsing, custom structure-aware section parser + `langchain-text-splitters` (`RecursiveCharacterTextSplitter`) strictly for oversized-section fallback.
+- **Strict Dependency Boundary:** Zero full `langchain` or `langchain-community` packages. Zero LangGraph (deferred to Phase 3).
+- **Structure-Aware PDF Ingestion:** Ingestion service and CLI parsing realistic MediLab PDF knowledge corpus with page and section provenance.
+- **Jina AI embeddings:** `jina-embeddings-v3` @ 384 dimensions via Matryoshka dimension truncation.
+- **Explicit task conditioning:** `retrieval.passage` for document chunks, `retrieval.query` for search queries.
+- **Atomic knowledge indexing lifecycle:** `PENDING` -> `INDEXING` -> `READY` / `FAILED` with SHA-256 change detection.
+- **PostgreSQL pgvector:** Cosine distance (`<=>`) semantic search (top 8).
+- **PostgreSQL Full-Text Search:** Against `search_vector` with `simple` dictionary (top 8).
+- **Reciprocal Rank Fusion (RRF):** Fusion with $k=60$ combining semantic and lexical ranks.
+- **Deterministic query rewrite:** Context-aware query rewrite handling English and Arabic anaphora.
+- **Signal-based retrieval grading:** `GOOD`, `WEAK_RETRY`, `AMBIGUOUS_USER_QUERY`, `NO_KNOWLEDGE`.
+- **Bounded retry:** Maximum of 1 alternate query retry on `WEAK_RETRY` (capped at 2 attempts total).
+- **Final context assembly:** Top 3–4 deduplicated chunks preserving section title, page number, and source file provenance.
+- **Zero database migrations:** Storing rich PDF source provenance in existing `KnowledgeChunk.metadata_` JSON.
+- **Strict data boundary:** Clinical preparation and customer service policies in RAG; live test prices, packages, branch availability slots, and booking state in SQL.
+
+## RAG Architecture & Flow
+
+```text
+PDF Knowledge Ingestion:
+PDF Corpus (7 Guides)
+  └──> PyMuPDF (fitz) page/block extraction
+        └──> Heading & Section Detection (deterministic numbered headings)
+              └──> Structure-Aware Chunks (PDF_CHUNK_SIZE=1400, OVERLAP=200)
+                    └──> RecursiveCharacterTextSplitter (oversized section fallback)
+                          └──> KnowledgeDocument & KnowledgeChunk
+                                └──> Jina retrieval.passage @384
+                                      └──> PostgreSQL pgvector + FTS search_vector
+
+Runtime Retrieval:
+User Query
+  └──> Deterministic Context-Aware Rewrite (English/Arabic)
+        └──> Jina retrieval.query @384
+              ├──> pgvector Cosine Semantic Retrieval (Top 8)
+              └──> PostgreSQL FTS Lexical Retrieval (Top 8)
+                    └──> Reciprocal Rank Fusion (RRF k=60)
+                          └──> Signal-Based Retrieval Grader
+                                ├──> GOOD -> Top Grounded Chunks with Source Citations
+                                ├──> WEAK_RETRY -> At Most One Alternate Bounded Retry
+                                └──> NO_KNOWLEDGE -> Deterministic Zero-Chunk Response
+```
 
 ## Core Phase 1 models
 
@@ -168,7 +193,24 @@ Verify live Jina AI Embeddings API call (English query & Arabic passage @ 384 di
 uv run python scripts/verify_embeddings.py
 ```
 
-### 2. Knowledge base indexing & synchronization
+### 2. PDF Knowledge Corpus Ingestion CLI
+Ingest realistic MediLab PDF knowledge corpus (`knowledge/pdfs/`) using `knowledge_manifest.json`:
+
+```bash
+# Ingest all manifest PDFs (with SHA-256 change detection & idempotency)
+uv run python scripts/ingest_knowledge_pdfs.py --all
+
+# Dry-run inspection without persisting chunks or generating embeddings
+uv run python scripts/ingest_knowledge_pdfs.py --all --dry-run
+
+# Ingest a single PDF file
+uv run python scripts/ingest_knowledge_pdfs.py --file knowledge/pdfs/01_Patient_Test_Preparation_and_Specimen_Collection_Guide.pdf
+
+# Force re-indexing of all documents (increments document version atomically)
+uv run python scripts/ingest_knowledge_pdfs.py --all --force
+```
+
+### 3. Knowledge base indexing & synchronization
 Index all active seeded knowledge documents:
 
 ```bash
@@ -182,15 +224,15 @@ uv run python scripts/reindex_knowledge.py --document-id 1
 uv run python scripts/reindex_knowledge.py --failed
 ```
 
-### 3. Interactive RAG retrieval verification
-Run benchmark queries (Arabic, English, paraphrased, no-answer) against the indexed knowledge base:
+### 4. Interactive RAG retrieval verification
+Run benchmark queries (Arabic, English, preparation, complaints, privacy, and unsupported queries) against the indexed PDF knowledge base:
 
 ```bash
 uv run python scripts/verify_rag.py
 ```
 
-### 4. RAG evaluation benchmark
-Run the evaluation suite across 15 bilingual cases to measure Recall@4, MRR, and latencies:
+### 5. RAG evaluation benchmark
+Run the evaluation suite across 28 bilingual cases (19 calibration, 9 post-calibration validation) to measure Recall@4, MRR, No-Answer accuracy, Section accuracy, and latencies:
 
 ```bash
 uv run python scripts/eval_rag.py
@@ -222,7 +264,7 @@ Cancellation locks the booking row before status evaluation and locks the author
 
 ## Tests
 
-Fast unit tests:
+Fast unit tests (including PDF parser, structure chunking, and ingestion lifecycle):
 
 ```bash
 uv run pytest tests/unit
@@ -231,10 +273,10 @@ uv run pytest tests/unit
 Verified result on Phase 2:
 
 ```text
-96 passed in 1.81s
+116 passed in 2.99s
 ```
 
-Real PostgreSQL integration tests:
+Real PostgreSQL integration tests (including vector storage, FTS triggers, RRF, and PDF ingestion):
 
 ```powershell
 $env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab_test"
@@ -244,7 +286,7 @@ uv run pytest -m postgres -v
 Verified result on disposable Docker PostgreSQL (zero skips):
 
 ```text
-21 passed, 96 deselected in 3.30s
+23 passed, 116 deselected in 5.49s
 ```
 
 Full suite:
@@ -256,7 +298,7 @@ uv run pytest
 Verified result:
 
 ```text
-117 passed in 13.06s
+139 passed in 6.47s
 ```
 
 ## Phase 2 RAG Verification & Evaluation Scripts
@@ -267,10 +309,10 @@ Live Jina AI embeddings verification:
 uv run python scripts/verify_embeddings.py
 ```
 
-Full knowledge base reindexing against database:
+PDF Knowledge Ingestion:
 
 ```bash
-uv run python scripts/reindex_knowledge.py --all
+uv run python scripts/ingest_knowledge_pdfs.py --all
 ```
 
 End-to-end RAG verification (hybrid retrieval, Arabic queries, CRUD synchronization, no-knowledge boundary):
@@ -279,7 +321,7 @@ End-to-end RAG verification (hybrid retrieval, Arabic queries, CRUD synchronizat
 uv run python scripts/verify_rag.py
 ```
 
-Rigorous RAG evaluation across calibration and holdout sets:
+Rigorous RAG evaluation across calibration and validation sets:
 
 ```bash
 uv run python scripts/eval_rag.py

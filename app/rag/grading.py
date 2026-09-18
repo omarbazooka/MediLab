@@ -50,25 +50,40 @@ def grade_retrieval(
     if top_chunk.lexical_rank == 1 and (top_chunk.fts_score or 0) > 0.15:
         return RetrievalOutcome.GOOD
 
-    # Signal 2: Dual-arm agreement with reasonable distance
+    # Signal 2: Dual-arm agreement with reasonable distance or solid lexical confirmation
     has_dual_arm_agreement = (
         top_chunk.semantic_rank is not None and top_chunk.lexical_rank is not None
     )
-    if has_dual_arm_agreement and (top_distance is None or top_distance <= 0.50):
-        return RetrievalOutcome.GOOD
-
-    # Signal 3: Strong semantic similarity (<= 0.48) with non-zero rank concentration or single chunk
-    if top_distance is not None and top_distance <= MAX_GOOD_COSINE_DISTANCE:
-        if len(chunks) == 1 or rank_concentration_gap >= 0.04 or top_chunk.lexical_rank is not None:
-            return RetrievalOutcome.GOOD
-
-    # Signal 4: Cross-lingual topical match (<= 0.61) backed by strong rank concentration (gap >= 0.08)
-    if (
-        top_distance is not None
-        and top_distance <= MAX_CROSS_LINGUAL_COSINE_DISTANCE
-        and rank_concentration_gap >= MIN_RANK_CONCENTRATION_GAP
+    if has_dual_arm_agreement and (
+        top_distance is None
+        or top_distance <= 0.50
+        or (top_distance <= 0.62 and (top_chunk.fts_score or 0) >= 0.15)
     ):
         return RetrievalOutcome.GOOD
+
+    # Signal 3: Strong semantic similarity (<= 0.40 with concentration, or <= 0.48 with lexical/concentration)
+    if top_distance is not None and top_distance <= MAX_GOOD_COSINE_DISTANCE:
+        if (
+            len(chunks) == 1
+            or top_chunk.lexical_rank is not None
+            or (top_distance <= 0.40 and rank_concentration_gap >= 0.01)
+            or rank_concentration_gap >= 0.035
+            or (
+                len(chunks) >= 2
+                and chunks[0].document_id == chunks[1].document_id
+                and rank_concentration_gap >= 0.015
+            )
+        ):
+            return RetrievalOutcome.GOOD
+
+    # Signal 4: Cross-lingual / Multilingual match (<= 0.55) backed by concentration or document clustering
+    if top_distance is not None and top_distance <= 0.55:
+        if rank_concentration_gap >= 0.035 or (
+            len(chunks) >= 2
+            and chunks[0].document_id == chunks[1].document_id
+            and rank_concentration_gap >= 0.015
+        ):
+            return RetrievalOutcome.GOOD
 
     # Signal 5: Borderline candidate -> WEAK_RETRY (candidate for single bounded retry)
     if top_distance is not None and top_distance <= MAX_PLAUSIBLE_COSINE_DISTANCE:

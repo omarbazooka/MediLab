@@ -37,6 +37,7 @@ class SemanticCandidate:
     content: str
     cosine_distance: float
     semantic_rank: int
+    chunk_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -52,6 +53,7 @@ class LexicalCandidate:
     content: str
     fts_score: float
     lexical_rank: int
+    chunk_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -70,11 +72,28 @@ class RetrievedChunk:
     cosine_distance: float | None = None
     fts_score: float | None = None
     rrf_score: float = 0.0
+    chunk_metadata: dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def section_title(self) -> str | None:
+        return self.chunk_metadata.get("section_title")
+
+    @property
+    def page_start(self) -> int | None:
+        return self.chunk_metadata.get("page_start")
+
+    @property
+    def page_end(self) -> int | None:
+        return self.chunk_metadata.get("page_end")
+
+    @property
+    def source_file(self) -> str | None:
+        return self.chunk_metadata.get("source_file")
 
     @property
     def source_metadata(self) -> dict[str, Any]:
         """Structured source provenance for client inspection and audit."""
-        return {
+        base: dict[str, Any] = {
             "chunk_id": self.chunk_id,
             "document_id": self.document_id,
             "title": self.document_title,
@@ -85,6 +104,19 @@ class RetrievedChunk:
             "lexical_rank": self.lexical_rank,
             "rrf_score": round(self.rrf_score, 6),
         }
+        if self.chunk_metadata:
+            for k in (
+                "source_file",
+                "source_type",
+                "section_title",
+                "section_number",
+                "page_start",
+                "page_end",
+                "content_hash",
+            ):
+                if k in self.chunk_metadata:
+                    base[k] = self.chunk_metadata[k]
+        return base
 
 
 @dataclass(frozen=True)

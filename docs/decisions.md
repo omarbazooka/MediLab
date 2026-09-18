@@ -263,3 +263,28 @@ All future schema changes must be additive Alembic migrations; do not rewrite al
 - **Final Context Assembly & Budget:** Top 3–4 deduplicated chunks (default 4) preserving title, category, version, and chunk provenance. Enforces deterministic word budget (600 words) and character budget (3500 characters) while preserving whole, complete chunk texts (never truncating or slicing sentences).
 - **Evaluation Integrity & Latency Accounting:** Evaluation suite uses 20 test cases explicitly split into 15 baseline calibration cases and 5 unseen holdout cases. Retrieval latency is measured and reported honestly (Average, P50, P95, Min, Max) without hardcoded PASS; network/cloud latency against public Jina API and Supabase is acknowledged against the internal <500ms target as `TARGET MISSED / NEEDS OPTIMIZATION`.
 - **Reranker:** DEFERRED / CORE ENHANCEMENT. Learned neural rerankers (Cohere, Jina Reranker) are deferred to post-Phase 2 optimization to preserve baseline predictability and deadline safety.
+
+---
+
+## Decision 13: Structure-Aware PDF Ingestion, PyMuPDF, and LangChain Splitter Boundary
+
+- **Status:** LOCKED FOR PHASE 2 CORE ENHANCEMENT
+- **Core Document Parser:** PyMuPDF (`fitz` / `pymupdf`). Extracts page numbers, block order, bounding boxes, running headers, and raw text without heavyweight OCR or external SaaS dependencies.
+- **Section & Heading Detection:** Deterministic structural parser (`app/rag/parsers/pdf.py`). Detects numbered section headings (`1. Purpose`, `2. Fasting...`) and standard document metadata blocks (`MEDILAB`, category, document notes). Preserves clean section boundaries so unrelated sections are never blended into a single chunk.
+- **LangChain Dependency Boundary:** Uses ONLY `langchain-text-splitters` (`RecursiveCharacterTextSplitter`). The full `langchain` and `langchain-community` packages are explicitly banned. `RecursiveCharacterTextSplitter` is employed strictly as a bounded fallback splitter INSIDE oversized detected sections. The MediLab RAG pipeline is a custom Python retrieval pipeline, NOT built with LangChain.
+- **Chunk Parameters (Engineering Defaults):**
+  - `PDF_CHUNK_SIZE = 1400` characters (target: ~1200–1800 chars)
+  - `PDF_CHUNK_OVERLAP = 200` characters (target: ~150–250 chars)
+- **Metadata & Provenance Contract:** Rich PDF source provenance is persisted inside the existing `KnowledgeChunk.metadata_` JSON column without schema migrations:
+  - `source_file`: canonical PDF filename (e.g., `01_Patient_Test_Preparation_and_Specimen_Collection_Guide.pdf`)
+  - `source_type`: `"pdf"`
+  - `section_title`: detected section title (e.g., `"3. Fasting and Hydration"`)
+  - `section_number`: detected section number (e.g., `"3"`)
+  - `page_start`: 1-indexed start page
+  - `page_end`: 1-indexed end page
+  - `content_hash`: SHA-256 hash of the source PDF for change detection and idempotency
+  - `document_version`: integer version tracking for stale-chunk protection
+- **Document Identity:** One PDF = One logical `KnowledgeDocument`. Manifest-driven ingestion (`knowledge/knowledge_manifest.json`) defines title, category, version, and SQL/RAG boundary.
+- **Data Boundary & Content Integrity:** Operational and policy guidance belongs to RAG (fasting instructions, service policies, specimen recollection procedures, privacy rules, complaint escalation). Business facts remain in SQL truth (live test prices, package prices, branch availability slots, booking state, customer records). Specific test turnaround times (e.g., Vitamin D = 48 Hours) remain in SQL LabTest data, while RAG defines general turnaround calculation and delay policies.
+- **CLI & Automation:** `scripts/ingest_knowledge_pdfs.py` supports `--all`, `--file <path>`, `--dry-run`, and `--force`, enforcing safe database URL masking, zero API key leakage, atomic chunk updates, and exit code propagation.
+

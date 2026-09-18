@@ -118,3 +118,76 @@ def chunk_document(
         )
 
     return result
+
+
+# Configurable engineering defaults for structure-aware PDF chunking
+PDF_CHUNK_SIZE: int = 1400  # Target character size per chunk
+PDF_CHUNK_OVERLAP: int = 200  # Character overlap for oversized section splits
+
+
+def chunk_parsed_document(
+    parsed_doc: Any,
+    document_id: int,
+    document_version: int,
+    category: str,
+    chunk_size: int = PDF_CHUNK_SIZE,
+    chunk_overlap: int = PDF_CHUNK_OVERLAP,
+) -> list[dict[str, Any]]:
+    """Produce structure-aware chunk specifications from a ParsedDocument.
+
+    Preserves section boundaries so unrelated headings are never mixed across chunks.
+    Oversized sections are recursively split using RecursiveCharacterTextSplitter.
+    """
+    from langchain_text_splitters import RecursiveCharacterTextSplitter
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        separators=["\n\n", "\n", ". ", "؟ ", "! ", " ", ""],
+    )
+
+    result: list[dict[str, Any]] = []
+    chunk_idx = 0
+
+    for section in parsed_doc.sections:
+        clean_text = section.content.strip()
+        if not clean_text:
+            continue
+
+        # If section fits within chunk_size, keep as a single atomic chunk
+        if len(clean_text) <= chunk_size:
+            text_pieces = [clean_text]
+        else:
+            # Oversized section: split recursively inside this section only
+            text_pieces = splitter.split_text(clean_text)
+
+        for piece in text_pieces:
+            piece_clean = piece.strip()
+            if not piece_clean:
+                continue
+
+            result.append(
+                {
+                    "chunk_index": chunk_idx,
+                    "content": piece_clean,
+                    "metadata": {
+                        "document_id": document_id,
+                        "document_version": document_version,
+                        "title": parsed_doc.title,
+                        "category": category,
+                        "source_file": parsed_doc.source_file,
+                        "source_type": "pdf",
+                        "section_title": section.title,
+                        "section_number": section.section_number,
+                        "page_start": section.page_start,
+                        "page_end": section.page_end,
+                        "chunk_index": chunk_idx,
+                        "content_hash": parsed_doc.file_hash,
+                        "char_count": len(piece_clean),
+                        "word_count": len(piece_clean.split()),
+                    },
+                }
+            )
+            chunk_idx += 1
+
+    return result

@@ -46,33 +46,65 @@ def main() -> int:
 
         test_cases = [
             {
-                "label": "English Known-Answer Policy Query",
-                "query": "What is the cancellation policy for a home visit?",
+                "label": "EN Preparation & Fasting Query",
+                "query": "What should I do if I accidentally eat while fasting?",
                 "expected_outcome": "GOOD",
-                "expected_document_title": "Appointment Cancellation & Rescheduling Policy",
+                "expected_document_titles": [
+                    "Patient Test Preparation & Specimen Collection Guide"
+                ],
+                "expected_section": "Fasting and Hydration",
             },
             {
-                "label": "Arabic Known-Answer Preparation Query",
-                "query": "هل لازم أصوم قبل تحليل الدهون؟",
+                "label": "AR Specimen Quality / Recollection Query",
+                "query": "لو العينة اترفضت بسبب مشكلة في الجودة أعمل إيه؟",
                 "expected_outcome": "GOOD",
-                "expected_document_title": "Fasting Guidelines for Diagnostic Blood Tests",
+                "expected_document_titles": [
+                    "Specimen Acceptance, Recollection & Quality Exceptions Guide",
+                    "Results Delivery, Turnaround & Report Access Guide",
+                ],
+                "expected_section": None,
             },
             {
-                "label": "English Paraphrased Service Query",
-                "query": "Can someone come to my house to collect the sample?",
+                "label": "EN Privacy & Authorized Access Query",
+                "query": "Can my wife access my lab report for me?",
                 "expected_outcome": "GOOD",
-                "expected_document_title": "Home Sample Collection Process & Service Areas",
+                "expected_document_titles": [
+                    "Patient Identification, Privacy & Authorized Access Guide",
+                    "Results Delivery, Turnaround & Report Access Guide",
+                ],
+                "expected_section": None,
+            },
+            {
+                "label": "AR Reschedule Home Visit Query",
+                "query": "لو عايز أغير ميعاد الزيارة المنزلية أعمل إيه؟",
+                "expected_outcome": "GOOD",
+                "expected_document_titles": [
+                    "Appointment Booking, Rescheduling & Cancellation Policy",
+                    "Home Sample Collection Service Policy",
+                ],
+                "expected_section": None,
+            },
+            {
+                "label": "EN Complaint & Duplicate Payment Query",
+                "query": "How do I complain about a duplicate payment?",
+                "expected_outcome": "GOOD",
+                "expected_document_titles": [
+                    "Customer Service, Complaints, Refunds & Escalation Policy",
+                    "Appointment Booking, Rescheduling & Cancellation Policy",
+                ],
+                "expected_section": None,
             },
             {
                 "label": "Unsupported / Non-Knowledge Query",
                 "query": "Does MediLab provide MRI scans?",
                 "expected_outcome": "NO_KNOWLEDGE",
-                "expected_document_title": None,
+                "expected_document_titles": [],
+                "expected_section": None,
             },
         ]
 
         print("=" * 80)
-        print("MediLab AI — Standalone Hybrid RAG Retrieval Live Verification")
+        print("MediLab AI — Structure-Aware PDF Knowledge Corpus Retrieval Verification")
         print("=" * 80)
         print(f"Database Target:   {app.config.get('SQLALCHEMY_DATABASE_URI', '').split('@')[-1]}")
         print(f"Embedding Model:   {model} ({dimension} dim)")
@@ -80,7 +112,7 @@ def main() -> int:
 
         passed = 0
         for idx, tc in enumerate(test_cases, start=1):
-            print(f"\n[Case {idx}/4] {tc['label']}")
+            print(f"\n[Case {idx}/{len(test_cases)}] {tc['label']}")
             print(f'  Input Query:     "{tc["query"]}"')
 
             try:
@@ -106,14 +138,21 @@ def main() -> int:
             if res.final_chunks:
                 print(f"  Retrieved Chunks ({len(res.final_chunks)} passages):")
                 for rank, ch in enumerate(res.final_chunks, start=1):
+                    meta = ch.source_metadata or {}
+                    sec = meta.get("section_title") or "N/A"
+                    page = meta.get("page_start") or "N/A"
+                    src = meta.get("source_file") or "N/A"
                     print(
-                        f"    #{rank} Doc #{ch.document_id} (v{ch.document_version} #{ch.chunk_index}) "
-                        f'"{ch.document_title}" | RRF={ch.rrf_score:.5f} '
-                        f"(SemRank={ch.semantic_rank}, LexRank={ch.lexical_rank}, Dist={ch.cosine_distance})"
+                        f"    #{rank} Chunk #{ch.chunk_id} | Doc #{ch.document_id} (v{ch.document_version}) "
+                        f'"{ch.document_title}"\n'
+                        f"       Section:     {sec}\n"
+                        f"       Page:        p. {page}\n"
+                        f"       Source File: {src}\n"
+                        f"       RRF Score:   {ch.rrf_score:.5f} (SemRank={ch.semantic_rank}, LexRank={ch.lexical_rank})"
                     )
                     # Print brief content preview
-                    preview = " ".join(ch.content.split()[:20])
-                    print(f'       Preview: "{preview}..."')
+                    preview = " ".join(ch.content.split()[:25])
+                    print(f'       Preview:     "{preview}..."')
             else:
                 print("  Retrieved Chunks: None (Correct deterministic no-answer)")
 
@@ -129,13 +168,21 @@ def main() -> int:
                     )
                     case_passed = False
             else:
-                expected_title = tc["expected_document_title"]
+                expected_titles = tc["expected_document_titles"]
                 top_title = res.final_chunks[0].document_title if res.final_chunks else None
-                if top_title != expected_title:
+                if top_title not in expected_titles:
                     print(
-                        f"  STATUS: FAIL (Top document '{top_title}' != expected '{expected_title}')"
+                        f"  STATUS: FAIL (Top document '{top_title}' not in expected {expected_titles})"
                     )
                     case_passed = False
+                elif tc.get("expected_section"):
+                    top_meta = res.final_chunks[0].source_metadata or {}
+                    top_section = top_meta.get("section_title", "")
+                    if tc["expected_section"].lower() not in top_section.lower():
+                        print(
+                            f"  STATUS: WARNING/FAIL (Top section '{top_section}' does not match expected '{tc['expected_section']}')"
+                        )
+                        case_passed = False
 
             if case_passed:
                 print("  STATUS: PASS")
