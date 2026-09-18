@@ -16,9 +16,11 @@ import pytest
 from app.extensions import db
 from app.rag.embeddings import DeterministicFakeEmbeddingProvider
 from app.rag.ingestion import PdfKnowledgeIngestionService
+from app.rag.indexing import KnowledgeIndexService, KnowledgeIndexingError
 from app.rag.service import RAGService
 from app.rag.types import RetrievalOutcome
 from app.repositories.knowledge_repository import KnowledgeRepository
+from scripts.seed_db import seed_knowledge_documents
 
 pytestmark = pytest.mark.postgres
 
@@ -140,3 +142,89 @@ def test_postgres_pdf_ingestion_and_hybrid_retrieval(
             # Cleanup
             repo.delete_document(doc)
             db.session.commit()
+
+
+def test_plain_indexer_refuses_pdf_managed_document(
+    postgres_app, fake_provider, small_sample_pdf
+) -> None:
+    """The legacy text indexer must not erase section/page provenance from PDF chunks."""
+    with postgres_app.app_context():
+        repo = KnowledgeRepository()
+        ingestion_service = PdfKnowledgeIngestionService(
+            repository=repo,
+            embedding_provider=fake_provider,
+        )
+        doc, _, _ = ingestion_service.ingest_pdf_file(
+            file_path=small_sample_pdf,
+            title="PDF Guard Integration Guide",
+            category="Preparation",
+            force=True,
+        )
+
+        try:
+            before = [
+                (chunk.id, chunk.content, chunk.metadata_.copy())
+                for chunk in repo.get_chunks_by_document(doc.id)
+            ]
+            indexer = KnowledgeIndexService(
+                repository=repo,
+                embedding_provider=fake_provider,
+            )
+            with pytest.raises(KnowledgeIndexingError, match="PDF-managed"):
+                indexer.index_document(doc.id)
+
+            db.session.expire_all()
+            preserved = repo.get_document_by_id(doc.id)
+            after = [
+                (chunk.id, chunk.content, chunk.metadata_.copy())
+                for chunk in repo.get_chunks_by_document(doc.id)
+            ]
+            assert preserved.index_status == "READY"
+            assert after == before
+        finally:
+            repo.delete_document(repo.get_document_by_id(doc.id))
+            db.session.commit()
+
+
+def test_seed_preserves_canonical_pdf_content_and_chunks(postgres_app, fake_provider) -> None:
+    """Running database seed after live PDF ingestion must not replace PDF text with placeholders."""
+    repo_root = __import__("pathlib").Path(__file__).resolve().parents[2]
+    pdf_path = (
+        repo_root
+        / "knowledge"
+        / "pdfs"
+        / "01_Patient_Test_Preparation_and_Specimen_Collection_Guide.pdf"
+    )
+
+    with postgres_app.app_context():
+        repo = KnowledgeRepository()
+        ingestion_service = PdfKnowledgeIngestionService(
+            repository=repo,
+            embedding_provider=fake_provider,
+        )
+        doc, _, _ = ingestion_service.ingest_pdf_file(
+            file_path=pdf_path,
+            title="Patient Test Preparation & Specimen Collection Guide",
+            category="Preparation",
+            force=True,
+        )
+        original_content = doc.content
+        original_version = doc.version
+        original_chunks = [
+            (chunk.id, chunk.content, chunk.metadata_.copy())
+            for chunk in repo.get_chunks_by_document(doc.id)
+        ]
+
+        seed_knowledge_documents()
+        db.session.commit()
+        db.session.expire_all()
+
+        preserved = repo.get_document_by_id(doc.id)
+        preserved_chunks = [
+            (chunk.id, chunk.content, chunk.metadata_.copy())
+            for chunk in repo.get_chunks_by_document(doc.id)
+        ]
+        assert preserved.content == original_content
+        assert preserved.version == original_version
+        assert preserved.index_status == "READY"
+        assert preserved_chunks == original_chunks
