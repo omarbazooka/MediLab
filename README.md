@@ -278,11 +278,13 @@ Fast unit tests (including PDF parser, structure chunking, and ingestion lifecyc
 uv run pytest tests/unit
 ```
 
-Verified result on Phase 2:
+Last recorded execution before the final PDF-ingestion QA hardening:
 
 ```text
 116 passed in 2.99s
 ```
+
+The current branch adds regression coverage for dry-run immutability, failed-refresh preservation, manifest path safety, malformed PDFs, seed ownership, and PDF/plain-indexer separation. Re-run this command on the final head before Phase 2 signoff.
 
 Real PostgreSQL integration tests (including vector storage, FTS triggers, RRF, and PDF ingestion):
 
@@ -291,11 +293,13 @@ $env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/
 uv run pytest -m postgres -v
 ```
 
-Verified result on disposable Docker PostgreSQL (zero skips):
+Last recorded execution before the final PDF-ingestion QA hardening (zero skips):
 
 ```text
 23 passed, 116 deselected in 5.49s
 ```
+
+Additional current-head PostgreSQL regression tests protect canonical PDF content from seed/reindex corruption and preserve custom knowledge.
 
 Full suite:
 
@@ -303,11 +307,13 @@ Full suite:
 uv run pytest
 ```
 
-Verified result:
+Last recorded execution before the final PDF-ingestion QA hardening:
 
 ```text
 139 passed in 6.47s
 ```
+
+Do not treat these historical counts as current-head test evidence after later QA commits.
 
 ## Phase 2 RAG Verification & Evaluation Scripts
 
