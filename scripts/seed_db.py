@@ -492,12 +492,16 @@ def seed_knowledge_documents() -> dict[str, KnowledgeDocument]:
             db.session.add(doc)
             db.session.flush()
         else:
-            if doc.content != item["content"]:
+            # The PDF corpus owns canonical document content once ingestion has occurred.
+            # Seed may synchronize stable manifest metadata, but it must never overwrite the
+            # parsed PDF text or invalidate READY chunks with a bootstrap placeholder.
+            doc.category = item["category"]
+            doc.active = item.get("active", True)
+            if not (doc.content or "").strip():
                 doc.content = item["content"]
-                db.session.flush()
-            if not doc.active and item.get("active", True):
-                doc.active = True
-                db.session.flush()
+            if not doc.index_status:
+                doc.index_status = "PENDING"
+            db.session.flush()
         seeded[item["title"]] = doc
 
     return seeded
