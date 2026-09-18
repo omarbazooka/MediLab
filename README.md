@@ -8,7 +8,7 @@ MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessm
 
 ## Phase 2 status
 
-Implemented and verified:
+Implemented on the Phase 2 branch (historical runtime evidence exists; final current-head rerun pending):
 
 - **Custom Python RAG Pipeline:** PyMuPDF for PDF parsing, custom structure-aware section parser + `langchain-text-splitters` (`RecursiveCharacterTextSplitter`) strictly for oversized-section fallback.
 - **Strict Dependency Boundary:** Zero full `langchain` or `langchain-community` packages. Zero LangGraph (deferred to Phase 3).
