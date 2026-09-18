@@ -146,9 +146,9 @@ class PdfParser:
             for page_idx in range(total_pages):
                 page = doc[page_idx]
                 page_num = page_idx + 1
-                raw_blocks = page.get_text("blocks")  # (x0, y0, x1, y1, text, block_no, type)
+                raw_blocks = page.get_text("blocks", sort=True)  # reading-order blocks
 
-                page_str = page.get_text().strip()
+                page_str = page.get_text(sort=True).strip()
                 if page_str:
                     page_texts.append(page_str)
 
