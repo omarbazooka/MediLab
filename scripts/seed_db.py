@@ -415,10 +415,22 @@ def seed_knowledge_documents() -> dict[str, KnowledgeDocument]:
         ]
         manifest_titles = {d["title"] for d in docs_data}
 
-        # Deactivate any legacy documents that are not in the canonical manifest
+        # Deactivate only the original four inline seed documents. Never deactivate arbitrary
+        # knowledge created later through CRUD/admin workflows just because it is not in the
+        # repository PDF manifest.
+        legacy_seed_titles = {
+            "Fasting Guidelines for Diagnostic Blood Tests",
+            "Home Sample Collection Process & Service Areas",
+            "Appointment Cancellation & Rescheduling Policy",
+            "Turnaround Times and Result Delivery",
+        }
         all_existing = db.session.execute(select(KnowledgeDocument)).scalars().all()
         for old_doc in all_existing:
-            if old_doc.title not in manifest_titles and old_doc.active:
+            if (
+                old_doc.title in legacy_seed_titles
+                and old_doc.title not in manifest_titles
+                and old_doc.active
+            ):
                 old_doc.active = False
                 db.session.flush()
 
