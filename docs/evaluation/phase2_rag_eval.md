@@ -2,7 +2,7 @@
 
 ## Metadata
 - **Date / Time:** 2026-09-18 02:30:03 UTC
-- **Git Commit SHA:** `e9fc02b1cfd7`
+- **Git HEAD at execution:** `e9fc02b1cfd7`
 - **Database Endpoint:** `aws-1-eu-west-1.pooler.supabase.com:5432/postgres?sslmode=require`
 - **Embedding Provider:** Jina AI
 - **Embedding Model:** `jina-embeddings-v3`
@@ -13,11 +13,17 @@
 > cases were inspected during QA hardening, so these metrics are validation evidence rather
 > than an unbiased generalization estimate.
 
+> **Provenance note:** This evaluation was executed while the PDF-ingestion changes were still
+> uncommitted on top of the recorded Git HEAD. Those working-tree changes were subsequently
+> committed as `a5d324a2d3b488426c5047fc55561385e499151c`. The metrics below are valid historical
+> runtime evidence for that working tree, but they are not current-head evidence after later QA
+> hardening. Re-run the evaluation before final Phase 2 signoff.
+
 ---
 
 ## Executive Summary Metrics
 
-| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Section Accuracy | Retry Rate | Avg Latency |
+| Split | Cases | Recall@4 | MRR | No-Answer Accuracy | Section Recall@4 | Retry Rate | Avg Latency |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Calibration Set** | 19 | **100.0%** (16/16) | **0.9375** | **100.0%** | 72.7% | 10.5% | 4758.9ms |
 | **Post-Calibration Validation** | 9 | **100.0%** (7/7) | **1.0000** | **100.0%** | 75.0% | 11.1% | 2791.7ms |
@@ -30,7 +36,7 @@
 | **Recall@4** | **100.0%** (23/23) | >= 90.0% | **PASS** |
 | **MRR** | **0.9565** | >= 0.8500 | **PASS** |
 | **No-Answer Accuracy** | **100.0%** (5/5) | 100.0% | **PASS** |
-| **Section-Title Accuracy** | **73.3%** (11/15) | Informational / Observable | **Measured (11/15)** |
+| **Section Recall@4** | **73.3%** (11/15) | Informational / Observable | **Measured (11/15)** |
 | **Retry Rate** | **10.7%** (3/28) | <= 20.0% | **PASS** |
 | **P95 Latency (Internal Target)** | **11262.1ms** | < 500.0ms | **TARGET MISSED / NEEDS OPTIMIZATION** |
 | **Median (P50) Latency** | **2451.4ms** | Informational | Informational |
