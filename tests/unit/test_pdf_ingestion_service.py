@@ -383,3 +383,49 @@ def test_manifest_metadata_change_is_not_misclassified_as_unchanged(fake_pdf_cor
         assert updated.version == 2
         assert updated.category == "Policies"
         assert updated.active is False
+
+
+def test_dry_run_does_not_require_embedding_provider(fake_pdf_corpus, app, monkeypatch):
+    """Parser/chunker dry-run must not construct or call the configured Jina provider."""
+    corpus_dir, manifest_file = fake_pdf_corpus
+
+    def fail_provider_factory():
+        raise AssertionError("embedding provider must not be created during dry-run")
+
+    monkeypatch.setattr("app.rag.ingestion.get_embedding_provider", fail_provider_factory)
+    service = PdfKnowledgeIngestionService(
+        manifest_path=manifest_file,
+        pdfs_dir=corpus_dir,
+    )
+
+    with app.app_context():
+        db.create_all()
+        doc, status, detail = service.ingest_pdf_file(
+            file_path=corpus_dir / "01_test_prep.pdf",
+            title="Patient Test Preparation Guide",
+            category="Preparation",
+            dry_run=True,
+        )
+        assert doc is None
+        assert status == "DRY_RUN"
+        assert detail["chunks_count"] > 0
+
+
+def test_manifest_lookup_rejects_same_name_outside_canonical_directory(
+    fake_pdf_corpus, tmp_path
+):
+    """A same-named external PDF must not impersonate a canonical manifest source."""
+    corpus_dir, manifest_file = fake_pdf_corpus
+    service = PdfKnowledgeIngestionService(
+        embedding_provider=DeterministicFakeEmbeddingProvider(dimension=384),
+        manifest_path=manifest_file,
+        pdfs_dir=corpus_dir,
+    )
+    canonical = corpus_dir / "01_test_prep.pdf"
+    spoof_dir = tmp_path / "outside"
+    spoof_dir.mkdir()
+    spoof = spoof_dir / canonical.name
+    spoof.write_bytes(canonical.read_bytes())
+
+    with pytest.raises(ValueError, match="canonical corpus path"):
+        service.find_manifest_entry(spoof)
