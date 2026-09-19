@@ -6,6 +6,8 @@ import re
 import time
 from typing import Any
 
+from flask import current_app, has_app_context
+
 from app.agent.state import MediLabAgentState
 
 # Session ID pattern: alphanumeric with hyphens, underscores, colons, dots (1-128 chars)
@@ -19,7 +21,15 @@ INJECTION_OVERRIDE_PATTERNS = [
     re.compile(r"(?i)\[\s*system\s*\]"),
 ]
 
+# Kept as the code-level fallback for isolated node tests that do not push a Flask app context.
 MAX_INPUT_LENGTH = 1000
+
+
+def _configured_max_input_length() -> int:
+    """Return the operator-configured input limit when an app context is available."""
+    if has_app_context():
+        return int(current_app.config.get("MAX_INPUT_LENGTH", MAX_INPUT_LENGTH))
+    return MAX_INPUT_LENGTH
 
 
 def input_guard(state: MediLabAgentState) -> dict[str, Any]:
@@ -54,15 +64,19 @@ def input_guard(state: MediLabAgentState) -> dict[str, Any]:
             "node_timings": timings,
         }
 
-    # 3. Enforce maximum input length
-    if len(normalized) > MAX_INPUT_LENGTH:
+    # 3. Enforce the configured maximum input length.
+    max_input_length = _configured_max_input_length()
+    if len(normalized) > max_input_length:
         timings["input_guard"] = (time.perf_counter() - t_start) * 1000
         return {
             "is_safe": False,
             "controlled_errors": errors
-            + [f"Input length {len(normalized)} exceeds maximum {MAX_INPUT_LENGTH}."],
+            + [f"Input length {len(normalized)} exceeds maximum {max_input_length}."],
             "response_goal": "CONTROLLED_ERROR",
-            "final_response": f"Message is too long. Please shorten your message to under {MAX_INPUT_LENGTH} characters.",
+            "final_response": (
+                f"Message is too long. Please shorten your message to under "
+                f"{max_input_length} characters."
+            ),
             "node_timings": timings,
         }
 
