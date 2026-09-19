@@ -240,7 +240,7 @@ uv run python scripts/verify_rag.py
 ```
 
 ### 5. RAG evaluation benchmark
-Run the evaluation suite across 28 bilingual cases (19 calibration, 9 post-calibration validation) to measure Recall@4, MRR, No-Answer accuracy, Section accuracy, and latencies:
+Run the evaluation suite across 28 bilingual cases (19 calibration, 9 post-calibration validation) to measure Recall@4, MRR, No-Answer accuracy, Section Recall@4, and latencies:
 
 ```bash
 uv run python scripts/eval_rag.py
@@ -289,7 +289,7 @@ $env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/
 uv run pytest -m postgres -v
 ```
 
-Verified current-head execution (zero skips, disposable Docker PostgreSQL):
+Verified execution on code SHA `3fcd3f0516f51da844b6317b983a5c0e90fabd9e` (zero skips, disposable Docker PostgreSQL):
 
 ```text
 27 passed, 126 deselected in 5.08s
@@ -301,12 +301,11 @@ Full test suite:
 uv run pytest
 ```
 
-Verified current-head execution:
+Verified execution on code SHA `3fcd3f0516f51da844b6317b983a5c0e90fabd9e`:
 
 ```text
 153 passed in 6.83s
 ```
-
 
 ## Phase 2 RAG Verification & Evaluation Scripts
 
@@ -334,7 +333,6 @@ Rigorous RAG evaluation across calibration and validation sets:
 uv run python scripts/eval_rag.py
 ```
 
-
 Quality gates:
 
 ```bash
@@ -359,11 +357,11 @@ Formatting count varies as the repository grows; use the command output from the
 
 The Docker job explicitly injects an ephemeral local `DATABASE_URL` for the web container; it does not use Supabase in CI.
 
-Through the current Phase 2 QA head, GitHub-hosted Actions continues to fail before any step is assigned (`steps=[]`, `runner_id=0`; Docker/PostgreSQL job skipped). A manual rerun reproduced the same platform-side startup failure. This is not application failure evidence, but it is also not a CI PASS. Historical local Docker/PostgreSQL and live Supabase runs remain evidence for the earlier tested working tree; the final head still requires a fresh executable gate before merge.
+GitHub-hosted Actions is still blocked before execution (`steps=[]`, `runner_id=0`; Docker/PostgreSQL job skipped). This is not an application failure and is not counted as a CI PASS. The current executable code tree at `3fcd3f0516f51da844b6317b983a5c0e90fabd9e` was independently verified locally with 126 unit tests, 27 PostgreSQL integration tests, 153 total tests, live Jina embeddings, live Supabase corpus/idempotency checks, 6/6 end-to-end RAG verification cases, and the 28-case benchmark. The final branch head differs from that executable code only by documentation commits.
 
 ## Healthcare boundary
 
-MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 1 seed knowledge is limited to approved customer-service/preparation/process information.
+MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 2 knowledge is limited to approved customer-service/preparation/process information.
 
 ## Phase status semantics
 
@@ -371,12 +369,11 @@ MediLab AI is not clinical decision support. The project must not diagnose, inte
 - `TESTED`: automated evidence passes
 - `LIVE_VERIFIED`: real runtime/database evidence proves the behavior
 
-Phase 2 should only be marked complete after independent QA accepts the current PR/commit and the current-head runtime gates pass.
+Phase 2 is **TESTED** + **LIVE_VERIFIED** and is ready for independent signoff/merge.
 
 ## Next phase
 
 Phase 3 integrates this independently tested RAG service into the single LangGraph conversation orchestrator, including context loading, safety, intent understanding, clarification, routing, response composition, validation, and persisted multi-turn state.
-
 
 ## PDF ingestion safety invariants
 
