@@ -290,3 +290,41 @@ All future schema changes must be additive Alembic migrations; do not rewrite al
 - **Canonical Ownership:** The repository PDF corpus is the source of truth for the seven operational knowledge documents. `seed_db.py` may create/bootstrap document records and synchronize stable manifest metadata, but it must never overwrite parsed PDF content after ingestion. Generic plain-text indexing is forbidden for PDF-managed chunks; safe reindex commands route canonical PDFs back through `PdfKnowledgeIngestionService`.
 - **Failed Refresh Safety:** Existing `READY` PDF documents remain retrievable until replacement parsing/chunking/embeddings are successfully prepared. A failed refresh preserves the last-known-good version/chunks and records a sanitized `index_error` rather than taking a healthy index offline.
 
+---
+
+## Decision 14: LangGraph StateGraph Architecture and Dependency Boundary
+
+- **Status:** LOCKED FOR PHASE 3
+- **Single Orchestrator:** One inspectable `StateGraph` compiled via `langgraph>=0.2.0`. Multi-agent swarms, supervisor patterns, CrewAI, AutoGen, and full `langchain` framework packages are explicitly prohibited.
+- **Agent State Contract (`MediLabAgentState`):** Pure TypedDict per-run orchestration state containing session parameters, hydrated context, strict LLM understanding schemas, route traces, node timings, and final response drafts. No process-global mutable conversation state is allowed.
+- **Graph Topology:**
+  `START -> input_guard -> load_context -> safety_gate -> understand_request -> resolve_pending_context -> uncertainty_gate -> [clarification_node | router -> (structured_data | rag | combined_read | customer_history | action_boundary | general) -> compose_response -> response_validator] -> persist_context -> END`.
+
+---
+
+## Decision 15: LLM-First Natural Language with Deterministic SQL/Python Business Authority
+
+- **Status:** LOCKED FOR PHASE 3
+- **Core Principle:** `LLM understands. Python verifies. LLM explains.`
+- **Language Layer:** LLM processes arbitrary English, Egyptian Arabic, Standard Arabic, and mixed-language inputs into a typed `RequestPlan`. Final customer responses are dynamically synthesized by the LLM strictly from verified evidence without fixed response templates. Keyword matching, regex classifiers, or hardcoded utterance trees are forbidden in production routing.
+- **Business Truth Layer:** Deterministic Python services and PostgreSQL database remain 100% authoritative for:
+  - Database primary keys and foreign keys
+  - Active test/package identities and availability
+  - Exact prices, sample types, and turnaround times
+  - Branch identities and operating hours
+  - Visible ordinal reference resolution against `SearchSnapshot`
+  - Customer ownership and booking status
+  - Mutation gating and transaction results
+- **Catalog Explanations:** All 10 active seeded `LabTest` descriptions are audited into neutral, customer-service explanations of what is measured, sample type, turnaround, and price, with clinical diagnostic assertions strictly removed.
+- **Healthcare Boundary:** Clinical diagnosis, clinical lab result interpretation, medication advice, and symptom-based test recommendation are strictly prohibited and safely intercepted at the AI-aware `safety_gate`.
+
+---
+
+## Decision 16: Read-Only Customer History, Privacy Isolation, and Phase 4 Action Boundary
+
+- **Status:** LOCKED FOR PHASE 3
+- **Bounded Customer History:** Read-only `CustomerContextService` retrieves at most 5 recent bookings with status and booked test names. Zero DB migrations added.
+- **Privacy & Isolation:** Customer history is attached strictly when `session.customer_id` is authenticated. Unauthenticated sessions receive zero booking leakage. Customer A never receives Customer B's history.
+- **Turn-Based Clarification:** Clarification suspends the graph turn, persists pending state and visible options to PostgreSQL, and resumes on the subsequent graph run without looping in memory. Maximum 2 attempts per ambiguous concept before human fallback.
+- **Action Boundary Interface:** Phase 3 understands action intents (`BOOK_BRANCH_VISIT`, `BOOK_HOME_VISIT`, `CHECK_BOOKING`, `CANCEL_BOOKING`), but enforces a strict placeholder boundary that never executes mutations or claims booking confirmation until Phase 4 transaction tools are implemented.
+

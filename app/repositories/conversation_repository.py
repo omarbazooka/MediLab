@@ -72,23 +72,32 @@ class ConversationRepository:
         criteria: dict[str, Any],
         items: list[dict[str, Any]],
     ) -> SearchSnapshot:
-        """Persist a search snapshot with strict visible sequence ordering."""
+        """Persist the exact visible result sequence and make it the sole active snapshot."""
+        session = self.get_session(session_id)
+        if session is None:
+            raise ValueError(f"Session '{session_id}' not found.")
+
+        latest = self.get_latest_snapshot(session_id)
+        effective_sequence = sequence_no
+        if latest is not None:
+            effective_sequence = max(sequence_no, latest.sequence_no + 1)
+
+        if session.active_snapshot is not None and session.active_snapshot.status == "ACTIVE":
+            session.active_snapshot.status = "STALE"
+
         snapshot = SearchSnapshot(
             session_id=session_id,
-            sequence_no=sequence_no,
+            sequence_no=effective_sequence,
             query=query,
             criteria=criteria,
             items=items,
+            status="ACTIVE",
         )
         db.session.add(snapshot)
         db.session.flush()
 
-        # Update session's active_snapshot_id
-        session = self.get_session(session_id)
-        if session:
-            session.active_snapshot_id = snapshot.id
-            db.session.flush()
-
+        session.active_snapshot_id = snapshot.id
+        db.session.flush()
         return snapshot
 
     def get_latest_snapshot(self, session_id: str) -> SearchSnapshot | None:
@@ -101,7 +110,7 @@ class ConversationRepository:
         return db.session.execute(stmt).scalars().first()
 
     def set_active_snapshot(self, session_id: str, snapshot_id: int) -> ConversationSession:
-        """Set the active snapshot for a session with strict cross-session ownership verification."""
+        """Set the active snapshot with strict ownership and stale the previous visible snapshot."""
         session = self.get_session(session_id)
         if session is None:
             raise ValueError(f"Session '{session_id}' not found.")
@@ -116,6 +125,9 @@ class ConversationRepository:
                 f"session '{snapshot.session_id}', not '{session_id}'."
             )
 
+        if session.active_snapshot is not None and session.active_snapshot.id != snapshot.id:
+            session.active_snapshot.status = "STALE"
+        snapshot.status = "ACTIVE"
         session.active_snapshot_id = snapshot.id
         db.session.flush()
         return session
