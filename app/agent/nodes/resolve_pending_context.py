@@ -70,6 +70,12 @@ def _infer_item_type(item: dict[str, Any]) -> str:
     return "test"
 
 
+def _snapshot_is_active(snapshot: dict[str, Any] | None) -> bool:
+    if not snapshot or not snapshot.get("items"):
+        return False
+    return str(snapshot.get("status", "ACTIVE")).upper() == "ACTIVE"
+
+
 def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
     """Resolve pending clarification/reference state without allowing hidden candidate selection."""
     t_start = time.perf_counter()
@@ -87,8 +93,8 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
     selected_package_id = state.get("selected_package_id")
     needs_clarification = state.get("needs_clarification", False)
 
-    # 1. Explicit test code/name extraction may override an older selection only when
-    # deterministic catalog lookup proves the entity exists.
+    # An explicit catalog code may override an older selection when deterministic lookup
+    # proves it exists. This is a new explicit choice, not an ordinal/snapshot inference.
     test_repo = TestRepository()
     query_entity = entities.get("test_query")
     if query_entity and isinstance(query_entity, str):
@@ -99,18 +105,11 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
             needs_clarification = False
             pending_clarification = None
 
-    # 2. Exact ordinals are deterministic. Semantic references are interpreted by the LLM
-    # understanding pass, which may propose visible_item_id/type. This node only validates
-    # that proposal against the exact active SearchSnapshot; it never searches hidden rows.
     ordinal = entities.get("ordinal_ref") or _extract_ordinal_from_text(user_msg)
     proposed_visible_id = entities.get("visible_item_id")
     proposed_visible_type = entities.get("visible_item_type")
 
-    if (
-        (ordinal or proposed_visible_id is not None)
-        and active_snapshot
-        and active_snapshot.get("items")
-    ):
+    if (ordinal or proposed_visible_id is not None) and _snapshot_is_active(active_snapshot):
         items: list[dict[str, Any]] = active_snapshot["items"]
         target_item: dict[str, Any] | None = None
 
@@ -119,8 +118,15 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
                 ordinal_pos = int(ordinal)
             except (TypeError, ValueError):
                 ordinal_pos = 0
-            if 1 <= ordinal_pos <= len(items):
-                target_item = items[ordinal_pos - 1]
+            for index, item in enumerate(items, start=1):
+                stored_position = item.get("position", index)
+                try:
+                    visible_position = int(stored_position)
+                except (TypeError, ValueError):
+                    visible_position = index
+                if visible_position == ordinal_pos:
+                    target_item = item
+                    break
         else:
             for item in items:
                 same_id = str(_item_id(item)) == str(proposed_visible_id)
@@ -147,12 +153,11 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
             pending_clarification = None
             needs_clarification = False
         elif pending_clarification:
-            # The LLM proposed a non-visible/invalid reference or an ordinal is out of range.
-            # Preserve the turn-based clarification loop rather than guessing.
             needs_clarification = True
+    elif (ordinal or proposed_visible_id is not None) and pending_clarification:
+        # Missing or stale snapshots can never back a positional/semantic visible reference.
+        needs_clarification = True
 
-    # 3. If a pending clarification was active and a deterministic/validated entity has
-    # actually resolved it in this turn, clear the pending state.
     if pending_clarification and not needs_clarification:
         pending_clarification = None
 
