@@ -84,6 +84,22 @@ def test_response_validator_blocks_clinical_diagnosis() -> None:
     assert "qualified healthcare professional" in update["final_response"]
 
 
+def test_response_validator_blocks_emergency_triage_guidance() -> None:
+    """MediLab must not provide emergency-triage directions in customer responses."""
+    state = create_initial_state("session-val-triage", "I have severe chest pain")
+    state["response_goal"] = "SAFE_BOUNDARY"
+    state["response_draft"] = (
+        "In an emergency or severe symptoms, please seek immediate emergency care at the nearest hospital."
+    )
+
+    update = response_validator(state)
+
+    assert update["validation_result"]["is_valid"] is False
+    assert any("emergency-triage" in r for r in update["validation_result"]["reasons"])
+    assert "seek immediate emergency care" not in update["final_response"].lower()
+    assert "qualified healthcare professional" in update["final_response"].lower()
+
+
 def test_response_validator_blocks_ungrounded_price() -> None:
     """A price absent from verified SQL evidence must invalidate and repair the draft."""
     state = create_initial_state("session-val-4", "What is TSH?")
