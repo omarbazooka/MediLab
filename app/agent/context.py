@@ -36,9 +36,9 @@ def load_conversation_context(
         for m in bounded_msgs
     ]
 
-    # Active search snapshot representation.
+    # Only the session's explicitly ACTIVE snapshot can back visible references.
     snapshot_data: dict[str, Any] | None = None
-    if session.active_snapshot:
+    if session.active_snapshot and session.active_snapshot.status == "ACTIVE":
         snap = session.active_snapshot
         snapshot_data = {
             "id": snap.id,
@@ -48,7 +48,6 @@ def load_conversation_context(
             "items": snap.items,
         }
 
-    # Bounded customer context if session is associated with a customer.
     customer_context = None
     if session.customer_id:
         customer_context = cust_service.get_customer_context(
