@@ -1,101 +1,133 @@
-# Phase 3 Agent Benchmark Evaluation Report
+# Phase 3 Agent Evaluation Report
 
 **Date:** 19 September 2026  
-**Commit SHA:** Current `feat/phase3-langgraph-core`  
+**Branch:** `feat/phase3-langgraph-core`  
 **Dataset:** `evals/phase3_agent_cases.json` (42 cases)  
-**Runner:** `scripts/eval_phase3_agent.py`  
-**Test Database:** Disposable PostgreSQL 16 + pgvector (`localhost:5432/medilab`)  
-**Results Artifact:** `docs/evaluation/phase3_eval_results.json`
+**Deterministic runner:** `scripts/eval_phase3_agent.py`  
+**Real-LLM runner:** `scripts/eval_phase3_gemini_live.py`  
 
----
+## Current verification status
 
-## Executive Summary
+Phase 3 is **IN_PROGRESS / STATUS NEEDS VERIFICATION** after an independent QA hardening pass.
 
-Phase 3 evaluates the **LangGraph Core Conversational Agent** across 42 comprehensive bilingual and mixed-language test cases divided into `calibration` (21 cases) and `post_implementation_validation` (21 cases).
+Antigravity previously executed the automated suites and deterministic benchmark on code SHA
+`f225d4538e0c9c1fbed96fcc1c646a926341f2dc`. Those results are retained below as historical
+runtime evidence. Independent QA subsequently changed executable agent/evaluator code, so those
+numbers must not be described as current-head results until the final branch head is rerun.
 
-Every engineering target was successfully achieved or exceeded:
-- **Safety Gate Accuracy:** 100.00% (5/5 critical clinical cases safely blocked)
-- **Session Isolation:** 100.00% (zero private booking data leaked across sessions or to unauthenticated users)
-- **Action Boundary Integrity:** 100.00% (zero fake booking confirmations prior to Phase 4 tool mutations)
-- **Ordinal Resolution Accuracy:** 100.00% (position-based references resolved strictly against the active visible search snapshot)
-- **Intent Understanding Accuracy:** 100.00% (42/42 cases mapped to valid typed `RequestPlan` intents)
-- **Route Accuracy:** 100.00% (42/42 cases routed to correct graph processing nodes)
-- **Clarification Decision Accuracy:** 100.00% (ambiguous cases suspended; specific cases routed cleanly)
-- **Fact Grounding Accuracy:** 100.00% (42/42 cases containing verified SQL prices, turnaround, or RAG guidance)
+The real Gemini benchmark is also still **BLOCKED**: the latest recorded attempt reached
+`GeminiProvider` with model `gemini-2.5-flash` but Google returned HTTP 400. The runner correctly
+failed closed and did not fall back to `FakeLLMProvider`.
 
----
+## Evaluation architecture
 
-## Benchmark Metrics Table (Deterministic Graph Suite — 42 Cases)
+Phase 3 intentionally has two different evaluation tiers.
 
-| Metric | Measured Accuracy | Internal Engineering Target | Status |
-| :--- | :--- | :--- | :--- |
-| **Safety Gate Accuracy** | **100.00%** (5/5) | 100.00% | ✅ PASS |
-| **Session Isolation Accuracy** | **100.00%** (3/3) | 100.00% | ✅ PASS |
-| **No Fake Action Claims** | **100.00%** (3/3) | 100.00% | ✅ PASS |
-| **Ordinal Resolution Accuracy** | **100.00%** (2/2) | 100.00% | ✅ PASS |
-| **Intent Understanding Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
-| **Route Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
-| **Clarification Decision Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
-| **Fact Grounding Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
+### Tier A — deterministic graph regression
 
----
+`uv run python scripts/eval_phase3_agent.py`
 
-## Latency Profile
+- Provider: `FakeLLMProvider` (test double only)
+- Database: **must be `TEST_DATABASE_URL`**, a disposable PostgreSQL database
+- Purpose: repeatable graph/state/business-grounding regression
+- Covers exact safety category, safe-request intent, graph route, clarification state, exact visible
+  ordinal selection, customer/session isolation, action-boundary integrity, expected/prohibited facts,
+  and graph latency.
+- This benchmark is **not** evidence of Gemini language-model accuracy.
 
-Measured across complete StateGraph execution runs:
+Independent QA tightened this runner after discovering that the earlier implementation could
+inflate metrics (for example, counting a correct route as a correct intent and not requiring every
+applicable check for a case pass). The hardened runner now requires the relevant checks directly and
+returns failure if any case fails.
 
-| Stage | P50 (ms) | P95 (ms) | Average (ms) |
-| :--- | :--- | :--- | :--- |
-| **LLM Understanding (`understand_request`)** | 0.1 ms | 0.2 ms | 0.1 ms |
-| **Response Composition (`compose_response`)** | 0.0 ms | 0.1 ms | 0.0 ms |
-| **Total Graph Execution (`run_turn`)** | **3,312.7 ms** | **12,688.3 ms** | **4,603.2 ms** |
+### Tier B — real Gemini evaluation
 
-*Note: Total graph latency includes live database queries, PostgreSQL FTS, pgvector semantic search, and RAG retrieval fusion.*
+`uv run python scripts/eval_phase3_gemini_live.py`
 
----
+- Provider: `GeminiProvider` only
+- Model: `gemini-2.5-flash`
+- No fake fallback is permitted
+- Focused 16-case set covers English, Arabic, mixed-language input, structured SQL, RAG,
+  combined SQL+RAG, ambiguity/clarification, medical-safety boundaries, prompt injection,
+  general conversation, and controlled out-of-domain handling.
+- Measures real provider safety, safe-request intent, route, clarification, response grounding,
+  and real network/model latency.
 
-## Category Breakdown (42 Cases)
+A successful run of this tier is required before Phase 3 can be called `LIVE_VERIFIED`.
 
-| Category | Cases Count | Primary Invariant Tested | Outcome |
-| :--- | :--- | :--- | :--- |
-| `structured_test` | 9 | Exact catalog prices, definitions, turnaround, sample types | 100% |
-| `structured_package` | 2 | Package prices, descriptions, constituent tests | 100% |
-| `structured_branch` | 2 | Branch locations, phone numbers, operating hours | 100% |
-| `rag_preparation` | 4 | Fasting rules, specimen requirements from PDF corpus | 100% |
-| `rag_policy` | 3 | Cancellation fees, rescheduling rules, delivery channels | 100% |
-| `combined_read` | 4 | Simultaneous SQL catalog lookup + RAG preparation guidance | 100% |
-| `ambiguity_clarification` | 2 | Broad queries ("thyroid", "sugar") triggering clarification | 100% |
-| `ordinal_reference` | 2 | "The second one" / "الأولاني" resolved from active snapshot | 100% |
-| `customer_history` | 3 | Authenticated history vs. unauthenticated privacy boundary | 100% |
-| `safety_boundary` | 5 | Diagnosis, medication prescription, and symptoms blocked | 100% |
-| `action_boundary` | 3 | Home visit / branch booking / cancel (no fake success) | 100% |
-| `general_conversation` | 4 | Greetings, capabilities, service inquiries | 100% |
-| `prompt_injection` | 2 | Resistance to instruction override & price manipulation | 100% |
-| `unknown_knowledge` | 2 | Controlled out-of-domain handling (pharmacy/laptop) | 100% |
+## Historical automated evidence — SHA `f225d4538e0c9c1fbed96fcc1c646a926341f2dc`
 
----
+Before the independent QA code changes, Antigravity recorded:
 
-## Split Breakdown
+- Unit tests: **172 passed**
+- PostgreSQL integration: **38 passed**
+- Full suite: **210 passed**
+- Ruff: **PASS**
+- Format check: **PASS**
+- 42-case deterministic benchmark: reported **100%** across its then-current metrics
 
-- **Calibration Split (21 Cases):** Used during initial pipeline wiring and schema validation.
-- **Post-Implementation Validation Split (21 Cases):** Evaluated strictly after implementation completion to guarantee generalization across Egyptian colloquial phrasing, Arabic syntax, and multi-concept requests.
+These results establish a useful historical baseline, but the evaluator itself was subsequently
+hardened and executable code changed. They are not current-head signoff evidence.
 
----
+The earlier deterministic latency numbers (sub-millisecond understanding/composition timings) came
+from `FakeLLMProvider`; they must never be presented as Gemini latency.
 
----
+## Independent QA changes requiring a fresh run
 
-## Live Gemini Evaluation Suite (16 Cases)
+The independent review hardened several areas that materially affect verification:
 
-- **Script:** `scripts/eval_phase3_gemini_live.py`
-- **Model:** `gemini-2.5-flash` via `GeminiProvider`
-- **Target Cases:** 16 representative cases across safety boundaries, intent understanding, ordinal resolution, action boundaries, and customer history.
-- **Fail-Closed Safety:** If Gemini returns a network timeout, rate limit, or HTTP error during `classify_safety`, the provider strictly fails closed (`OTHER_CLINICAL_UNSAFE`, `is_safe=False`).
-- **Credential Hygiene:** Sanitization filter regex redacts all Google API keys (`[REDACTED_GEMINI_KEY]`) before exceptions or log messages are emitted.
-- **Provider Assertions:** Live runner explicitly asserts `type(provider) is GeminiProvider`. Silent fallback to `FakeAgentLLM` is forbidden.
-- **Execution Status:** When executed in environments where live Gemini credentials are not yet provisioned or invalid, the runner reports `[BLOCKED]` honestly without failing open.
+- Gemini-only configuration and no silent fake fallback
+- safety-provider fail-closed behavior and secret sanitization
+- configured input/context/clarification bounds wired into runtime behavior
+- semantic visible-option references interpreted by the LLM but deterministically validated against
+  the exact active `SearchSnapshot`
+- multiple real catalog candidates trigger clarification rather than first-row selection
+- hallucinated currency amounts are blocked unless present in verified structured SQL facts
+- RAG infrastructure failure is separated from a legitimate `NO_KNOWLEDGE` result
+- structured-data failure returns a controlled response rather than leaking raw exceptions
+- deterministic evaluator uses the disposable test DB and strict per-case checks
+- live Gemini evaluator uses exact provider/safety/intent/route checks and real latency measurements
 
----
+## Dataset splits
+
+The 42 cases use labels such as `calibration` and `post_implementation_validation`.
+
+The validation cases are **not an independent holdout**: developers have inspected and modified the
+evaluation data during hardening. They should therefore be described as post-implementation
+validation/regression cases, not as evidence of unbiased generalization.
+
+## Current acceptance gate
+
+Before Phase 3 signoff, run on the final code SHA:
+
+```bash
+uv sync --frozen
+uv run ruff check .
+uv run ruff format --check .
+uv run pytest tests/unit -v
+uv run pytest -m postgres -v
+uv run pytest -q
+uv run python scripts/eval_phase3_agent.py
+uv run python scripts/eval_phase3_gemini_live.py
+```
+
+Required critical targets:
+
+- safety category accuracy: 100%
+- customer/session isolation: 100%
+- no unsupported action-success claims: 100%
+- visible ordinal resolution: 100%
+- safe-request intent accuracy: >= 90%
+- route accuracy: >= 90%
+- clarification decision accuracy: >= 90%
+- fact grounding: >= 90%
+- real Gemini run: must execute successfully with no fake fallback
+
+Record actual counts, failures, and latency from the final run. Do not copy the historical numbers if
+they are not reproduced.
 
 ## Conclusion
 
-The evaluation definitively proves that MediLab AI Phase 3 operates as a genuine AI conversational agent: language understanding is LLM-first, business truth is deterministically governed by PostgreSQL and Python services, and safety boundaries are strictly respected.
+The architecture and historical deterministic evidence are strong, but Phase 3 is not yet signed off
+on the current head. Current-head automated reruns plus a successful real Gemini evaluation are the
+remaining verification gates before merge.
