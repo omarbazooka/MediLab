@@ -15,6 +15,7 @@ from app.agent.nodes.customer_history_node import customer_history_node
 from app.agent.nodes.general_node import general_node
 from app.agent.nodes.input_guard import input_guard
 from app.agent.nodes.load_context import load_context
+from app.agent.nodes.multi_source_node import multi_source_node
 from app.agent.nodes.persist_context import persist_context
 from app.agent.nodes.rag_node import rag_node
 from app.agent.nodes.resolve_pending_context import resolve_pending_context
@@ -56,6 +57,7 @@ def build_agent_graph() -> Any:
     builder.add_node("rag_node", rag_node)
     builder.add_node("combined_read_node", combined_read_node)
     builder.add_node("customer_history_node", customer_history_node)
+    builder.add_node("multi_source_node", multi_source_node)
     builder.add_node("action_boundary_node", action_boundary_node)
     builder.add_node("general_node", general_node)
     builder.add_node("compose_response", compose_response)
@@ -96,6 +98,7 @@ def build_agent_graph() -> Any:
             "rag": "rag_node",
             "combined_read": "combined_read_node",
             "customer_history": "customer_history_node",
+            "multi_source": "multi_source_node",
             "action_boundary": "action_boundary_node",
             "general": "general_node",
             "compose_response": "compose_response",
@@ -106,6 +109,7 @@ def build_agent_graph() -> Any:
     builder.add_edge("rag_node", "compose_response")
     builder.add_edge("combined_read_node", "compose_response")
     builder.add_edge("customer_history_node", "compose_response")
+    builder.add_edge("multi_source_node", "compose_response")
     builder.add_edge("action_boundary_node", "compose_response")
     builder.add_edge("general_node", "compose_response")
 
