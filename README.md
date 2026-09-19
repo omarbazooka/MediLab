@@ -12,8 +12,19 @@ MediLab AI is a customer-service and sales AI conversational agent for a diagnos
 
 ## Phase 3 Status
 
-Current Status: **TESTED** + **LIVE_VERIFIED** (PR open targeting `main` for independent QA):
+Current Status: **TESTED** (Full Automated Regression & Strict 42-Case Deterministic Benchmark) | **LIVE_VERIFICATION_BLOCKED** (Awaiting Valid Google AI Studio Gemini API Key):
 
+- **Automated Test Suite (Current Head):** **214 passed** (176 unit tests + 38 PostgreSQL integration tests, 0 failed, 0 skipped).
+- **Strict Deterministic Benchmark:** **42/42 passed (100.0%)** on disposable PostgreSQL (`scripts/eval_phase3_agent.py` using `FakeLLMProvider`):
+  - Safety Classification: 100.0% (42/42)
+  - Session Isolation: 100.0% (3/3)
+  - Action Boundary Integrity (No Fake Confirmations): 100.0% (3/3)
+  - Ordinal & Visible Snapshot Resolution: 100.0% (2/2)
+  - Intent Accuracy (Safe/NLU): 100.0% (37/37)
+  - Route Accuracy: 100.0% (42/42)
+  - Clarification Decision Accuracy: 100.0% (42/42)
+  - Fact Grounding Accuracy: 100.0% (42/42)
+- **Live Gemini Verification:** **BLOCKED** on `GEMINI_API_KEY`. The runtime successfully selects `GeminiProvider` with model `gemini-2.5-flash` without fallback, but Google's API endpoint returns HTTP 400 (`API_KEY_INVALID: API key not valid. Please pass a valid API key.`) because the environment key is a Google Cloud project/OAuth identifier (`gen-lang-client-...`) rather than a Google AI Studio API key (`AIzaSy...`). Safety correctly fails closed.
 - **LangGraph StateGraph Orchestration:** Single inspectable `StateGraph` compiled via `langgraph>=0.2.0`. Zero full `langchain`, zero multi-agent swarms, zero supervisors.
 - **LLM Understanding Pass:** Typed Pydantic `RequestPlan` extracting primary intent, requested information, entities, references, clarification needs, and multi-source requirements (`requires_structured_data`, `requires_rag`, `requires_customer_history`).
 - **PostgreSQL Durable Memory:** Multi-turn session hydration, recent conversation ordering, `SearchSnapshot` ordinal resolution, and pending clarification state without additional schema migrations.

@@ -8,16 +8,21 @@
 
 ## Current verification status
 
-Phase 3 is **IN_PROGRESS / STATUS NEEDS VERIFICATION** after an independent QA hardening pass.
+Phase 3 is **TESTED** on the current branch head, but **LIVE_VERIFICATION_BLOCKED** for real Gemini external calls.
 
-Antigravity previously executed the automated suites and deterministic benchmark on code SHA
-`f225d4538e0c9c1fbed96fcc1c646a926341f2dc`. Those results are retained below as historical
-runtime evidence. Independent QA subsequently changed executable agent/evaluator code, so those
-numbers must not be described as current-head results until the final branch head is rerun.
-
-The real Gemini benchmark is also still **BLOCKED**: the latest recorded attempt reached
-`GeminiProvider` with model `gemini-2.5-flash` but Google returned HTTP 400. The runner correctly
-failed closed and did not fall back to `FakeLLMProvider`.
+- **Deterministic & Automated Quality:** **TESTED** (100% passing across all gates on current HEAD).
+  - Ruff check: All checks passed.
+  - Ruff format: Clean (137 files).
+  - Unit tests: 176 passed.
+  - PostgreSQL integration tests: 38 passed.
+  - Full suite: 214 passed.
+  - Strict deterministic 42-case benchmark: 42/42 passed (100.0% across all 8 metrics).
+- **Live Gemini Verification:** **BLOCKED** on `GEMINI_API_KEY`.
+  - The runtime correctly instantiates `GeminiProvider` with model `gemini-2.5-flash` and makes real REST calls to Google Generative Language API without fake fallback.
+  - Google returns HTTP 400 with body:
+    `{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}`
+  - Cause: The configured key is a Google Cloud OAuth/project identifier (`gen-lang-client-...`) instead of an AI Studio API key (`AIzaSy...`).
+  - Safety gate behavior: Fails closed to `OTHER_CLINICAL_UNSAFE` with zero exception text leaked to customers. Safe healthcare boundaries are strictly preserved.
 
 ## Evaluation architecture
 
