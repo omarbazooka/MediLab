@@ -7,20 +7,15 @@ from app.agent.state import MediLabAgentState
 
 
 def route_request(state: MediLabAgentState) -> str:
-    """Determine the specific execution branch based on the validated RequestPlan."""
-    # If safety gate flagged unsafe clinical request, route straight to compose_response
+    """Determine the execution branch from the validated RequestPlan."""
     if not state.get("is_safe", True):
         return "compose_response"
 
-    # If input guard flagged error, route straight to persist
     if state.get("response_goal") == "CONTROLLED_ERROR":
         return "compose_response"
 
     plan = state.get("request_plan") or {}
     intent = state.get("intent") or ""
-
-    if plan.get("requires_customer_history") or intent == AgentIntent.CUSTOMER_HISTORY.value:
-        return "customer_history"
 
     if plan.get("action_intent") or intent in {
         AgentIntent.BOOK_BRANCH_VISIT.value,
@@ -30,13 +25,24 @@ def route_request(state: MediLabAgentState) -> str:
     }:
         return "action_boundary"
 
-    req_struct = plan.get("requires_structured_data", False)
-    req_rag = plan.get("requires_rag", False)
+    requires_history = bool(
+        plan.get("requires_customer_history") or intent == AgentIntent.CUSTOMER_HISTORY.value
+    )
+    requires_structured = bool(plan.get("requires_structured_data", False))
+    requires_rag = bool(plan.get("requires_rag", False))
 
-    if req_struct and req_rag:
+    # Customer-history questions may also need current catalog facts and/or approved
+    # policy knowledge. Do not let the history flag eclipse the other requested sources.
+    if requires_history and (requires_structured or requires_rag):
+        return "multi_source"
+
+    if requires_history:
+        return "customer_history"
+
+    if requires_structured and requires_rag:
         return "combined_read"
 
-    if req_rag or intent in {
+    if requires_rag or intent in {
         AgentIntent.PREPARATION.value,
         AgentIntent.POLICY.value,
         AgentIntent.FAQ.value,
@@ -45,7 +51,7 @@ def route_request(state: MediLabAgentState) -> str:
     }:
         return "rag"
 
-    if req_struct or intent in {
+    if requires_structured or intent in {
         AgentIntent.TEST_SEARCH.value,
         AgentIntent.TEST_DETAILS.value,
         AgentIntent.TEST_DEFINITION.value,
