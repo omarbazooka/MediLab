@@ -131,7 +131,6 @@ class GeminiProvider:
         except Exception as exc:
             sanitized = self._sanitize_error_text(str(exc))
             logger.error("Gemini safety classification failed: %s", sanitized)
-            # CRITICAL SAFETY RULE: Never fail open as SAFE_OPERATIONAL. Fail closed.
             return SafetyClassification(
                 category=SafetyCategory.OTHER_CLINICAL_UNSAFE,
                 confidence=0.0,
@@ -222,9 +221,9 @@ class GeminiProvider:
             logger.error("Gemini compose_response failed: %s", sanitized)
             lang = evidence_bundle.get("language", "en")
             fallback_text = (
-                "عذراً، لا يمكننا معالجة طلبك حالياً. يرجى التواصل مع خدمة عملاء ميدي لاب على 19123."
+                "عذراً، لا يمكننا معالجة طلبك حالياً. يرجى المحاولة مرة أخرى أو التواصل مع خدمة عملاء ميدي لاب."
                 if lang == "ar"
-                else "I apologize, but I am unable to process your request at this moment. Please contact MediLab customer service at 19123."
+                else "I apologize, but I am unable to process your request at this moment. Please try again or contact MediLab customer service."
             )
             return ResponseDraft(
                 text=fallback_text,
