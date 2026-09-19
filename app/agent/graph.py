@@ -45,7 +45,6 @@ def build_agent_graph() -> Any:
     """Construct and compile the MediLab StateGraph orchestrator."""
     builder = StateGraph(MediLabAgentState)
 
-    # Register Nodes
     builder.add_node("input_guard", input_guard)
     builder.add_node("load_context", load_context)
     builder.add_node("safety_gate", safety_gate)
@@ -63,12 +62,10 @@ def build_agent_graph() -> Any:
     builder.add_node("response_validator", response_validator)
     builder.add_node("persist_context", persist_context)
 
-    # Wire Edges
     builder.add_edge(START, "input_guard")
     builder.add_edge("input_guard", "load_context")
     builder.add_edge("load_context", "safety_gate")
 
-    # Safety Gate Branch
     builder.add_conditional_edges(
         "safety_gate",
         _check_safety_branch,
@@ -80,7 +77,6 @@ def build_agent_graph() -> Any:
 
     builder.add_edge("understand_request", "resolve_pending_context")
 
-    # Uncertainty Gate Branch
     builder.add_conditional_edges(
         "resolve_pending_context",
         uncertainty_gate,
@@ -90,10 +86,8 @@ def build_agent_graph() -> Any:
         },
     )
 
-    # Clarification Path: persists and ends the turn
     builder.add_edge("clarification_node", "persist_context")
 
-    # Router Branch
     builder.add_conditional_edges(
         "router_node",
         route_request,
@@ -108,7 +102,6 @@ def build_agent_graph() -> Any:
         },
     )
 
-    # Execution branches converge on compose_response
     builder.add_edge("structured_data_node", "compose_response")
     builder.add_edge("rag_node", "compose_response")
     builder.add_edge("combined_read_node", "compose_response")
@@ -116,7 +109,6 @@ def build_agent_graph() -> Any:
     builder.add_edge("action_boundary_node", "compose_response")
     builder.add_edge("general_node", "compose_response")
 
-    # Post-composition validation and persistence
     builder.add_edge("compose_response", "response_validator")
     builder.add_edge("response_validator", "persist_context")
     builder.add_edge("persist_context", END)
@@ -139,6 +131,7 @@ class MediLabAgent:
             "response": final_state.get("final_response"),
             "intent": final_state.get("intent"),
             "is_safe": final_state.get("is_safe"),
+            "safety_classification": final_state.get("safety_classification"),
             "response_goal": final_state.get("response_goal"),
             "route_trace": final_state.get("route_trace", []),
             "pending_clarification": final_state.get("pending_clarification"),
