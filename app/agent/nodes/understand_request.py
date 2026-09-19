@@ -42,6 +42,7 @@ def understand_request(state: MediLabAgentState) -> dict[str, Any]:
 
     user_msg = state.get("normalized_user_message") or state.get("user_message", "")
     pending = state.get("pending_clarification") or {}
+    visible_options = _visible_options_summary(state)
 
     # Build a compact context summary. The LLM may interpret natural references against
     # visible_options, but deterministic resolution later validates any proposed ID/type
@@ -49,7 +50,8 @@ def understand_request(state: MediLabAgentState) -> dict[str, Any]:
     context_summary = {
         "selected_test_id": state.get("selected_test_id"),
         "selected_package_id": state.get("selected_package_id"),
-        "visible_options": _visible_options_summary(state),
+        "has_active_snapshot": bool(visible_options),
+        "visible_options": visible_options,
         "has_pending_clarification": bool(pending),
         "pending_clarification_target": pending.get("target"),
         "customer_associated": bool(state.get("customer_id")),
