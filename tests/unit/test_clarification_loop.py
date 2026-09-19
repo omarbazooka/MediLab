@@ -44,10 +44,27 @@ def test_clarification_node_bounded_fallback(app: Flask) -> None:
         assert update["response_goal"] == "ANSWER"
         assert update["needs_clarification"] is False
         assert update["pending_clarification"] is None
-        assert (
-            "19123" in update["final_response"]
-            or "customer service" in update["final_response"].lower()
-        )
+        assert "customer service" in update["final_response"].lower()
+        assert "19123" not in update["final_response"]
+
+
+def test_clarification_node_honors_configured_attempt_bound(app: Flask) -> None:
+    """MAX_CLARIFICATION_ATTEMPTS must be wired from Flask config, not a dead setting."""
+    with app.app_context():
+        app.config["MAX_CLARIFICATION_ATTEMPTS"] = 1
+        state = create_initial_state("session-clarify-config", "still unsure")
+        state["needs_clarification"] = True
+        state["clarification_target"] = "test_selection"
+        state["pending_clarification"] = {
+            "target": "test_selection",
+            "attempts": 1,
+        }
+
+        update = clarification_node(state)
+
+        assert update["response_goal"] == "ANSWER"
+        assert update["pending_clarification"] is None
+        assert update["clarification_attempts"] == 2
 
 
 def test_resolve_pending_context_clears_on_resolution(app: Flask) -> None:
