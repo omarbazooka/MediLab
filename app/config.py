@@ -36,6 +36,9 @@ class BaseConfig:
     DEFAULT_EMBEDDING_PROVIDER = "jina"
     DEFAULT_EMBEDDING_MODEL = "jina-embeddings-v3"
     DEFAULT_EMBEDDING_DIMENSION = 384
+    DEFAULT_LLM_PROVIDER = "fake"
+    DEFAULT_LLM_MODEL = "gpt-4o-mini"
+    DEFAULT_LLM_BASE_URL = ""
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS: dict[str, Any] = {"pool_pre_ping": True}
@@ -64,6 +67,15 @@ class BaseConfig:
             "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL", cls.DEFAULT_EMBEDDING_MODEL).strip(),
             "EMBEDDING_DIMENSION": dimension,
             "JINA_API_KEY": os.getenv("JINA_API_KEY", "").strip(),
+            "LLM_PROVIDER": os.getenv("LLM_PROVIDER", cls.DEFAULT_LLM_PROVIDER).strip().lower(),
+            "LLM_MODEL": os.getenv("LLM_MODEL", cls.DEFAULT_LLM_MODEL).strip(),
+            "LLM_API_KEY": (
+                os.getenv("LLM_API_KEY")
+                or os.getenv("OPENAI_API_KEY")
+                or os.getenv("GEMINI_API_KEY")
+                or ""
+            ).strip(),
+            "LLM_BASE_URL": os.getenv("LLM_BASE_URL", cls.DEFAULT_LLM_BASE_URL).strip(),
         }
 
     @classmethod
@@ -82,6 +94,15 @@ class BaseConfig:
         if provider not in {"jina"}:
             raise ConfigurationError(
                 f"Unsupported EMBEDDING_PROVIDER '{provider}'. Supported providers: jina"
+            )
+
+        # Validate LLM provider settings
+        llm_provider = str(config.get("LLM_PROVIDER", "")).strip().lower()
+        valid_llm_providers = {"fake", "openai", "gemini", "groq", "openrouter"}
+        if llm_provider not in valid_llm_providers:
+            valid_str = ", ".join(sorted(valid_llm_providers))
+            raise ConfigurationError(
+                f"Unsupported LLM_PROVIDER '{llm_provider}'. Supported providers: {valid_str}"
             )
 
         dimension = config.get("EMBEDDING_DIMENSION")

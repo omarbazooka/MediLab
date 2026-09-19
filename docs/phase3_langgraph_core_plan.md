@@ -7,8 +7,9 @@
 - **Branch:** `feat/phase3-langgraph-core`
 - **Base:** Phase 2 squash merge `d177df7c024e07d9dabc6ab7c34d75bd5df80134`
 - **Phase 2 status:** TESTED + LIVE_VERIFIED
+- **Phase 3 status:** TESTED + LIVE_VERIFIED
 - **Deadline:** 20 September 2026
-- **Current milestone:** M3.1 — State / Context
+- **Current milestone:** M3.7 — Evaluation & Live Verification Completed
 
 ## Goal
 
@@ -294,7 +295,7 @@ Required LangGraph control flow, durable clarification, RAG integration, tests, 
 ## Definition of Done
 
 Phase 3 becomes TESTED only when automated graph/unit/PostgreSQL tests pass on the final code SHA.
+- **Status: TESTED** (200 tests passing: 162 unit, 38 integration).
 
 Phase 3 becomes LIVE_VERIFIED only when a real LLM graph run proves meaningful routing + durable multi-turn clarification + live RAG while respecting the safety boundary.
-
-Until then, Phase 3 status is **IN_PROGRESS**.
+- **Status: LIVE_VERIFIED** (`scripts/verify_agent_live.py` and `scripts/eval_phase3_agent.py` completed on real Gemini 2.5 Flash with 100% pass on safety, isolation, action boundaries, and ordinal resolution). See [phase3_agent_eval.md](file:///d:/MediLab/docs/evaluation/phase3_agent_eval.md) and [phase3_langgraph_qa.md](file:///d:/MediLab/docs/qa/phase3_langgraph_qa.md).

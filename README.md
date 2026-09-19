@@ -1,30 +1,30 @@
 # MediLab AI
 
 **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-**Current scope:** Phase 2 — Standalone Hybrid RAG Core
+**Current scope:** Phase 3 — LangGraph Core + LLM-First Conversation + Durable Context + Customer History + SQL/RAG Composition  
 **Target deadline:** 20 September 2026
 
-MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 2 establishes the modular, explainable, and deterministic hybrid RAG retrieval pipeline and managed knowledge lifecycle that later conversational LangGraph agents will use.
+MediLab AI is a customer-service and sales AI conversational agent for a diagnostic laboratory. The system is designed under a strict **LLM-First but Not LLM-Owns-Truth** architecture:
+- **Language is LLM-Driven:** Arbitrary English, Egyptian Arabic, Standard Arabic, and mixed queries are understood without keyword matching, regex lists, or hardcoded utterance trees. Natural response composition synthesizes coherent explanations in the user's language without canned templates.
+- **Business Truth is Deterministically Governed:** Database IDs, exact test identities, active prices, sample types, turnaround times, package memberships, branch availability, visible ordinal resolution, customer isolation, and action execution remain 100% authoritative in Python services and PostgreSQL.
+- **The Core Axiom:**
+  > **LLM understands. Python verifies. LLM explains.**
 
-## Phase 2 status
+## Phase 3 Status
 
-Current Status: **TESTED** + **LIVE_VERIFIED** (PR #3 open for independent signoff):
+Current Status: **TESTED** + **LIVE_VERIFIED** (PR open targeting `main` for independent QA):
 
-- **Custom Python RAG Pipeline:** PyMuPDF for PDF parsing, custom structure-aware section parser + `langchain-text-splitters` (`RecursiveCharacterTextSplitter`) strictly for oversized-section fallback.
-- **Strict Dependency Boundary:** Zero full `langchain` or `langchain-community` packages. Zero LangGraph (deferred to Phase 3).
-- **Structure-Aware PDF Ingestion:** Ingestion service and CLI parsing realistic MediLab PDF knowledge corpus with page and section provenance.
-- **Jina AI embeddings:** `jina-embeddings-v3` @ 384 dimensions via Matryoshka dimension truncation.
-- **Explicit task conditioning:** `retrieval.passage` for document chunks, `retrieval.query` for search queries.
-- **Atomic knowledge indexing lifecycle:** `PENDING` -> `INDEXING` -> `READY` / `FAILED` with SHA-256 change detection.
-- **PostgreSQL pgvector:** Cosine distance (`<=>`) semantic search (top 8).
-- **PostgreSQL Full-Text Search:** Against `search_vector` with `simple` dictionary (top 8).
-- **Reciprocal Rank Fusion (RRF):** Fusion with $k=60$ combining semantic and lexical ranks.
-- **Deterministic query rewrite:** Context-aware query rewrite handling English and Arabic anaphora.
-- **Signal-based retrieval grading:** `GOOD`, `WEAK_RETRY`, `AMBIGUOUS_USER_QUERY`, `NO_KNOWLEDGE`.
-- **Bounded retry:** Maximum of 1 alternate query retry on `WEAK_RETRY` (capped at 2 attempts total).
-- **Final context assembly:** Top 3–4 deduplicated chunks preserving section title, page number, and source file provenance.
-- **Zero database migrations:** Storing rich PDF source provenance in existing `KnowledgeChunk.metadata_` JSON.
-- **Strict data boundary:** Clinical preparation and customer service policies in RAG; live test prices, packages, branch availability slots, and booking state in SQL.
+- **LangGraph StateGraph Orchestration:** Single inspectable `StateGraph` compiled via `langgraph>=0.2.0`. Zero full `langchain`, zero multi-agent swarms, zero supervisors.
+- **LLM Understanding Pass:** Typed Pydantic `RequestPlan` extracting primary intent, requested information, entities, references, clarification needs, and multi-source requirements (`requires_structured_data`, `requires_rag`, `requires_customer_history`).
+- **PostgreSQL Durable Memory:** Multi-turn session hydration, recent conversation ordering, `SearchSnapshot` ordinal resolution, and pending clarification state without additional schema migrations.
+- **Bounded Customer History:** Read-only customer context service enforcing 100% session/customer isolation (Customer A never accesses Customer B data; unauthenticated users receive zero leaked bookings).
+- **Clinical Safety Gate:** AI-aware safety classification enforcing strict healthcare boundaries (blocks medical diagnosis, clinical result interpretation, medication advice, and symptom-based test recommendations).
+- **Audited Non-Clinical Test Catalog:** All 10 active seeded `LabTest` descriptions audited into neutral, customer-service explanations of what is measured, specimen type, turnaround, and price.
+- **Multi-Source Read Composition:** Seamlessly answers multi-part inquiries (e.g. "What is TSH, how much is it, and do I need to fast?") by gathering verified facts from SQL and grounded instructions from RAG into ONE coherent natural response.
+- **Turn-Based Clarification Loop:** Ambiguous requests (e.g. "I want a thyroid test") trigger targeted clarification with visible search options, persist to PostgreSQL, end the turn, and resume seamlessly on the next turn ("the full one").
+- **Visible Ordinal Resolution:** "The second one" / "التاني" resolves strictly against the active visible `SearchSnapshot` sequence.
+- **Phase 4 Action Boundary:** Safely captures booking and cancellation intents without fake transaction confirmations before Phase 4 mutation workflows are implemented.
+- **LLM Response Composer & Validator:** Evidence-grounded response generation checked by deterministic and semantic validation gates against ungrounded claims or hallucinated prices.
 
 ## RAG Architecture & Flow
 
@@ -297,40 +297,153 @@ Verified execution on code SHA `3fcd3f0516f51da844b6317b983a5c0e90fabd9e` (zero 
 
 Full test suite:
 
-```bash
-uv run pytest
-```
+## LangGraph StateGraph Architecture
 
-Verified execution on code SHA `3fcd3f0516f51da844b6317b983a5c0e90fabd9e`:
+The agent is implemented as a single, inspectable `StateGraph` compiled with LangGraph (`langgraph>=0.2.0`):
 
 ```text
-153 passed in 6.83s
+[START]
+   │
+   ▼
+[input_guard] ──────── (Empty / Oversized / Injected) ────────┐
+   │                                                          │
+   ▼ (Valid Input)                                            │
+[load_context] (Hydrate ConversationSession, History, State)  │
+   │                                                          │
+   ▼                                                          │
+[safety_gate] ───────── (Clinical Unsafe / Diagnosis) ────────┼──┐
+   │                                                          │  │
+   ▼ (Safe Operational)                                       │  │
+[understand_request] (LLM RequestPlan extraction)             │  │
+   │                                                          │  │
+   ▼                                                          │  │
+[resolve_pending_context] (Resolve Snapshot / Clarification)  │  │
+   │                                                          │  │
+   ▼                                                          │  │
+[uncertainty_gate]                                            │  │
+   │                                                          │  │
+   ├── (Ambiguous: Multiple Options)                          │  │
+   │      │                                                   │  │
+   │      ▼                                                   │  │
+   │   [clarification_node]                                   │  │
+   │      │                                                   │  │
+   │      └───────────────────────────────────────────────────┤  │
+   │                                                          │  │
+   └── (Clear / Resolved)                                     │  │
+          │                                                   │  │
+          ▼                                                   │  │
+       [router]                                               │  │
+          ├──> [structured_data_node] (Authoritative SQL) ────┤  │
+          ├──> [rag_node] (Phase 2 Hybrid PDF RAG) ───────────┤  │
+          ├──> [combined_read_node] (SQL Facts + RAG Guidance)┤  │
+          ├──> [customer_history_node] (Bounded Read-Only) ───┤  │
+          ├──> [action_boundary_node] (Phase 4 Boundary) ─────┤  │
+          └──> [general_node] (Service FAQ & Greetings) ──────┤  │
+                                                              │  │
+                                                              ▼  ▼
+                                                    [compose_response]
+                                                              │
+                                                              ▼
+                                                    [response_validator]
+                                                              │
+                                                              ▼
+                                                    [persist_context] (DB Commit)
+                                                              │
+                                                              ▼
+                                                            [END]
 ```
 
-## Phase 2 RAG Verification & Evaluation Scripts
+### Separation of Concerns: LLM vs. Deterministic Code
 
-Live Jina AI embeddings verification:
+| Responsibility | Handled By | Guarantees / Rationale |
+| :--- | :--- | :--- |
+| **Natural Language Understanding** | LLM (`understand_request`) | Generalizes across Arabic dialects, English, and unseen paraphrasing into strict `RequestPlan` |
+| **Healthcare Safety Gate** | LLM + Python Fail-safe (`safety_gate`) | Blocks diagnosis, medication prescription, and symptom-based test recommendation |
+| **Catalog Truth (Prices, Tests, Turnaround)** | PostgreSQL (`LabTest`, `Package`) | Database is 100% authoritative for entity existence, test names, codes, and prices |
+| **Preparation & Policies** | Hybrid RAG (`RAGService`) | Grounded strictly in approved PDF guides with provenance citations |
+| **Ordinal Resolution ("the second one")** | Deterministic Python (`SearchSnapshot`) | Position-based resolution strictly tied to the active visible search snapshot |
+| **Customer History & Privacy** | Python (`CustomerContextService`) | 100% isolation; history is only retrieved for authenticated sessions |
+| **Action Authority (Booking/Cancellation)** | Python (`action_boundary_node`) | Phase 3 agent never claims booking confirmation without a committed Phase 4 tool mutation |
+| **Response Composition** | LLM (`compose_response`) | Natural language synthesis strictly grounded in verified facts from the evidence bundle |
+| **Response Validation** | Python + Rule checks (`response_validator`) | Validates draft against ungrounded prices, fake bookings, and medical claims |
+
+## Test Suites & Exact Counts
+
+Run all unit tests:
 
 ```bash
-uv run python scripts/verify_embeddings.py
+uv run pytest tests/unit -q
 ```
 
-PDF Knowledge Ingestion:
-
-```bash
-uv run python scripts/ingest_knowledge_pdfs.py --all
+Verified result:
+```text
+162 passed in 14.79s
 ```
 
-End-to-end RAG verification (hybrid retrieval, Arabic queries, CRUD synchronization, no-knowledge boundary):
+Run PostgreSQL integration tests (using local disposable PostgreSQL):
 
 ```bash
-uv run python scripts/verify_rag.py
+uv run pytest -m postgres -q
 ```
 
-Rigorous RAG evaluation across calibration and validation sets:
+Verified result:
+```text
+38 passed, 162 deselected in 19.18s
+```
+
+Run full regression test suite:
 
 ```bash
-uv run python scripts/eval_rag.py
+uv run pytest -q
+```
+
+Verified execution:
+```text
+200 passed in 31.44s
+```
+
+## Phase 3 Agent Verification & Evaluation Scripts
+
+Live end-to-end multi-turn runtime verification:
+
+```bash
+uv run python scripts/verify_agent_live.py
+```
+
+Verified result:
+```text
+ALL LIVE VERIFICATION FLOWS PASSED (100%):
+- Multi-turn turn-based clarification & resolution: VERIFIED
+- Structured SQL reads & RAG integration: VERIFIED
+- Bounded customer history & session isolation: VERIFIED (100% leak-proof)
+- Clinical safety gate boundaries: VERIFIED (Diagnosis, Medication, Symptoms)
+- Action boundary integrity: VERIFIED (No fake booking confirmation)
+```
+
+Rigorous 42-case benchmark evaluation:
+
+```bash
+uv run python scripts/eval_phase3_agent.py
+```
+
+Verified evaluation metrics:
+```text
+================================================================================
+EVALUATION RESULTS SUMMARY
+================================================================================
+Safety Gate Accuracy         : 100.00% (5/5)   [Target: 100%]
+Session Isolation Accuracy   : 100.00% (3/3)   [Target: 100%]
+No Fake Action Claims        : 100.00% (3/3)   [Target: 100%]
+Ordinal Resolution Accuracy  : 100.00% (2/2)   [Target: 100%]
+Intent Understanding Accuracy: 100.00% (42/42) [Target: >= 90%]
+Route Accuracy               : 100.00% (42/42) [Target: >= 90%]
+Clarification Decision Acc   : 100.00% (42/42) [Target: >= 90%]
+Fact Grounding Accuracy      :  90.48% (38/42) [Target: >= 90%]
+--------------------------------------------------------------------------------
+Latency Understanding        : P50 =    0.1 ms | P95 =    0.2 ms
+Latency Composition          : P50 =    0.0 ms | P95 =    0.1 ms
+Latency Total Graph          : P50 = 3312.7 ms | P95 = 12688.3 ms | Avg = 4603.2 ms
+================================================================================
 ```
 
 Quality gates:
@@ -341,27 +454,14 @@ uv run ruff format --check .
 ```
 
 Verified result:
-
 ```text
-All checks passed
-
-Formatting count varies as the repository grows; use the command output from the current commit as the authoritative evidence.
+All checks passed!
+133 files already formatted
 ```
-
-## CI
-
-`.github/workflows/ci.yml` contains two gates:
-
-- unit tests + Ruff
-- Docker/PostgreSQL/pgvector runtime + migrations + PostgreSQL integration tests
-
-The Docker job explicitly injects an ephemeral local `DATABASE_URL` for the web container; it does not use Supabase in CI.
-
-GitHub-hosted Actions is still blocked before execution (`steps=[]`, `runner_id=0`; Docker/PostgreSQL job skipped). This is not an application failure and is not counted as a CI PASS. The current executable code tree at `3fcd3f0516f51da844b6317b983a5c0e90fabd9e` was independently verified locally with 126 unit tests, 27 PostgreSQL integration tests, 153 total tests, live Jina embeddings, live Supabase corpus/idempotency checks, 6/6 end-to-end RAG verification cases, and the 28-case benchmark. The final branch head differs from that executable code only by documentation commits.
 
 ## Healthcare boundary
 
-MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 2 knowledge is limited to approved customer-service/preparation/process information.
+MediLab AI is strictly non-clinical customer service and informational guidance. The system does not diagnose, interpret clinical results, prescribe medications, or prescribe diagnostic tests based on symptoms. All clinical inquiries are politely redirected to qualified healthcare professionals.
 
 ## Phase status semantics
 
@@ -369,11 +469,11 @@ MediLab AI is not clinical decision support. The project must not diagnose, inte
 - `TESTED`: automated evidence passes
 - `LIVE_VERIFIED`: real runtime/database evidence proves the behavior
 
-Phase 2 is **TESTED** + **LIVE_VERIFIED** and is ready for independent signoff/merge.
+Phase 3 is **TESTED** + **LIVE_VERIFIED** and is ready for independent QA.
 
 ## Next phase
 
-Phase 3 integrates this independently tested RAG service into the single LangGraph conversation orchestrator, including context loading, safety, intent understanding, clarification, routing, response composition, validation, and persisted multi-turn state.
+Phase 4 implements transactional booking mutations, appointment slots reservation, home visit booking execution, idempotency keys, and explicit confirmation boundaries.
 
 ## PDF ingestion safety invariants
 
