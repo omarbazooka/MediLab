@@ -17,7 +17,7 @@ MAX_CLARIFICATION_ATTEMPTS = 2
 
 
 def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
-    """Generate a single focused clarification question and persist pending clarification state."""
+    """Generate one focused question and persist the exact visible candidate set."""
     t_start = time.perf_counter()
     timings = dict(state.get("node_timings", {}))
 
@@ -34,8 +34,6 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
     target = state.get("clarification_target") or "service_selection"
     reason = state.get("clarification_reason") or "Multiple options or ambiguous entity."
 
-    # If attempts exceed the bound, provide a polite fallback and human-support referral.
-    # Do not invent a phone number that is not backed by verified business data.
     if attempts > max_attempts:
         timings["clarification_node"] = (time.perf_counter() - t_start) * 1000
         fallback_text = (
@@ -53,9 +51,6 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
             "node_timings": timings,
         }
 
-    # Discover candidate options from the real catalog using the LLM-extracted query.
-    # Candidate discovery is deterministic business-data lookup; natural-language understanding
-    # remains the responsibility of the LLM request-understanding stage.
     options: list[str] = []
     snapshot_items: list[dict[str, Any]] = []
 
@@ -63,15 +58,17 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
     query = entities.get("test_query") or state.get("normalized_user_message", "")
 
     test_repo = TestRepository()
-    pkg_repo = PackageRepository()
-
+    package_repo = PackageRepository()
     matched_tests = test_repo.search(query=query, active_only=True)
-    matched_packages = pkg_repo.search(query=query, active_only=True)
+    matched_packages = package_repo.search(query=query, active_only=True)
 
     for test in matched_tests:
-        options.append(f"{test.name} ({test.price} EGP)")
+        position = len(snapshot_items) + 1
+        label = f"{test.name} ({test.price} EGP)"
+        options.append(label)
         snapshot_items.append(
             {
+                "position": position,
                 "type": "test",
                 "id": test.id,
                 "code": test.code,
@@ -80,9 +77,12 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
             }
         )
     for package in matched_packages:
-        options.append(f"{package.name} ({package.price} EGP)")
+        position = len(snapshot_items) + 1
+        label = f"{package.name} ({package.price} EGP)"
+        options.append(label)
         snapshot_items.append(
             {
+                "position": position,
                 "type": "package",
                 "id": package.id,
                 "name": package.name,
@@ -90,14 +90,13 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
             }
         )
 
-    # Save exactly the visible candidate set as the active SearchSnapshot.
     active_snapshot = state.get("active_search_snapshot")
     if snapshot_items:
         conv_repo = ConversationRepository()
         seq = 1
         if active_snapshot:
             seq = active_snapshot.get("sequence_no", 0) + 1
-        created_snap = conv_repo.save_snapshot(
+        created_snapshot = conv_repo.save_snapshot(
             session_id=session_id,
             sequence_no=seq,
             query=query,
@@ -105,10 +104,11 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
             items=snapshot_items,
         )
         active_snapshot = {
-            "id": created_snap.id,
-            "sequence_no": created_snap.sequence_no,
-            "query": created_snap.query,
-            "items": created_snap.items,
+            "id": created_snapshot.id,
+            "sequence_no": created_snapshot.sequence_no,
+            "query": created_snapshot.query,
+            "status": created_snapshot.status,
+            "items": created_snapshot.items,
         }
 
     provider = get_llm_provider()
@@ -117,18 +117,36 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
         reason=reason,
         options=options,
         language=language,
-    )
+    ).strip()
+
+    # The LLM owns the natural question wording. Python renders the exact numbered
+    # business options in the exact SearchSnapshot order so ordinal references always
+    # correspond to what the customer actually saw.
+    if options:
+        numbered_options = "\n".join(
+            f"{position}. {label}" for position, label in enumerate(options, start=1)
+        )
+        question = f"{question}\n{numbered_options}"
 
     pending_clarification_data = {
         "target": target,
         "attempts": attempts,
         "options": options,
+        "visible_items": [
+            {
+                "position": item.get("position"),
+                "type": item.get("type"),
+                "id": item.get("id"),
+                "code": item.get("code"),
+                "name": item.get("name"),
+            }
+            for item in snapshot_items
+        ],
         "snapshot_id": active_snapshot.get("id") if active_snapshot else None,
         "question": question,
     }
 
     timings["clarification_node"] = (time.perf_counter() - t_start) * 1000
-
     routes = list(state.get("route_trace", []))
     routes.append("clarification_node")
 
