@@ -8,6 +8,31 @@ from typing import Any
 
 from app.agent.state import MediLabAgentState
 
+_PRICE_NUMBER_RE = re.compile(r"\d[\d,]*(?:\.\d{1,2})?")
+_PRICE_MENTION_RE = re.compile(
+    r"(\d[\d,]*(?:\.\d{1,2})?)\s*(?:EGP|جنيه|LE)\b",
+    re.IGNORECASE,
+)
+
+
+def _collect_verified_prices(value: Any, key_hint: str = "") -> set[float]:
+    """Recursively collect numeric values from structured fields explicitly representing prices."""
+    prices: set[float] = set()
+    if isinstance(value, dict):
+        for key, child in value.items():
+            child_key = str(key).lower()
+            if "price" in child_key and isinstance(child, (str, int, float)):
+                for match in _PRICE_NUMBER_RE.findall(str(child)):
+                    try:
+                        prices.add(float(match.replace(",", "")))
+                    except ValueError:
+                        continue
+            prices.update(_collect_verified_prices(child, child_key))
+    elif isinstance(value, list):
+        for child in value:
+            prices.update(_collect_verified_prices(child, key_hint))
+    return prices
+
 
 def response_validator(state: MediLabAgentState) -> dict[str, Any]:
     """Validate that draft response contains no hallucinations, fake actions, or safety breaches."""
@@ -20,7 +45,7 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
     reasons: list[str] = []
     repaired_text: str | None = None
 
-    # 1. Non-empty check
+    # 1. Non-empty check.
     if not draft:
         is_valid = False
         reasons.append("Draft response is empty.")
@@ -30,7 +55,7 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
             else "I apologize, but I was unable to process your request. Please try again."
         )
 
-    # 2. Fake booking / action success check
+    # 2. Fake booking / action success check.
     lower_draft = draft.lower()
     has_action_success_claim = any(
         phrase in lower_draft
@@ -55,7 +80,7 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
             else "I can provide test details, prices, and branch hours, but direct automated booking is not currently active. Please contact customer service."
         )
 
-    # 3. Clinical diagnosis / medical prescription check
+    # 3. Clinical diagnosis / medical prescription check.
     has_medical_diagnosis_claim = any(
         phrase in lower_draft
         for phrase in [
@@ -76,32 +101,33 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
             else "MediLab provides diagnostic laboratory services. We do not provide clinical diagnoses or prescriptions. Please consult a doctor."
         )
 
-    # 4. Price hallucination check:
-    # If draft mentions EGP / جنيه with an amount, verify the amount is in structured_result
-    structured = state.get("structured_result") or {}
-    price_matches = re.findall(r"(\d+(?:\.\d{1,2})?)\s*(?:EGP|جنيه|LE)", draft, re.IGNORECASE)
-    if price_matches and structured:
-        known_prices = set()
-        if "test" in structured:
-            raw_p = structured["test"].get("price", "")
-            nums = re.findall(r"\d+(?:\.\d{1,2})?", raw_p)
-            known_prices.update(nums)
-        if "package" in structured:
-            raw_p = structured["package"].get("price", "")
-            nums = re.findall(r"\d+(?:\.\d{1,2})?", raw_p)
-            known_prices.update(nums)
+    # 4. Price grounding check. Any customer-facing currency amount must be backed by
+    # structured SQL evidence. Prices are SQL-owned business facts, never RAG/LLM-owned facts.
+    price_mentions = _PRICE_MENTION_RE.findall(draft)
+    if price_mentions:
+        structured = state.get("structured_result") or {}
+        known_prices = _collect_verified_prices(structured)
+        unverified: list[str] = []
+        for raw_price in price_mentions:
+            mentioned = float(raw_price.replace(",", ""))
+            if not any(abs(known - mentioned) < 0.01 for known in known_prices):
+                unverified.append(raw_price)
 
-        for p_str in price_matches:
-            # Check integer or decimal equivalence
-            float_val = float(p_str)
-            if not any(abs(float(kp) - float_val) < 0.01 for kp in known_prices if kp):
-                # If price is mentioned but not in evidence, flag warning
-                reasons.append(f"Price {p_str} not verified in structured facts.")
+        if unverified:
+            is_valid = False
+            reasons.append(
+                "Response contains price amount(s) not present in verified structured facts: "
+                + ", ".join(unverified)
+            )
+            repaired_text = (
+                "لا أستطيع تأكيد السعر من البيانات الموثقة المتاحة في هذه المحادثة. يمكنني إعادة البحث في بيانات ميدي لاب الحالية للتحقق من السعر."
+                if language == "ar"
+                else "I cannot verify that price from the trusted structured data available for this turn. I can re-check MediLab's current catalog data before quoting a price."
+            )
 
-    # 5. NO_KNOWLEDGE check:
+    # 5. NO_KNOWLEDGE check.
     rag_res = state.get("rag_result") or {}
     if rag_res.get("outcome") == "NO_KNOWLEDGE" and state.get("response_goal") == "NO_KNOWLEDGE":
-        # Ensure we don't present an ungrounded preparation assertion
         if any(w in lower_draft for w in ["fast for", "requires fasting", "يجب الصيام"]):
             is_valid = False
             reasons.append(
