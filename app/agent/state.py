@@ -19,7 +19,10 @@ class MediLabAgentState(TypedDict, total=False):
     current_state: dict[str, Any]
     customer_context: dict[str, Any] | None
     selected_test_id: int | None
+    selected_test_code: str | None
+    selected_test_name: str | None
     selected_package_id: int | None
+    selected_package_name: str | None
     active_search_snapshot: dict[str, Any] | None
     pending_clarification: dict[str, Any] | None
     pending_action: dict[str, Any] | None
@@ -74,7 +77,10 @@ def create_initial_state(session_id: str, user_message: str) -> MediLabAgentStat
         "current_state": {},
         "customer_context": None,
         "selected_test_id": None,
+        "selected_test_code": None,
+        "selected_test_name": None,
         "selected_package_id": None,
+        "selected_package_name": None,
         "active_search_snapshot": None,
         "pending_clarification": None,
         "pending_action": None,
