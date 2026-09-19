@@ -11,22 +11,27 @@ from app.agent.state import MediLabAgentState
 
 
 def combined_read_node(state: MediLabAgentState) -> dict[str, Any]:
-    """Execute both SQL catalog lookup and RAG retrieval for multi-source questions."""
+    """Execute SQL catalog lookup plus RAG retrieval for multi-source questions."""
     t_start = time.perf_counter()
     timings = dict(state.get("node_timings", {}))
     routes = list(state.get("route_trace", []))
     routes.append("combined_read_node")
 
-    # 1. Execute structured catalog lookup
     struct_res = structured_data_node(state)
-    merged_state: MediLabAgentState = {**state, **struct_res}
+    if struct_res.get("response_goal") == "CONTROLLED_ERROR":
+        timings["combined_read_node"] = (time.perf_counter() - t_start) * 1000
+        return {
+            **struct_res,
+            "route_trace": routes,
+            "node_timings": timings,
+        }
 
-    # 2. Execute RAG retrieval with resolved test context
+    merged_state: MediLabAgentState = {**state, **struct_res}
     rag_res = rag_node(merged_state)
 
     timings["combined_read_node"] = (time.perf_counter() - t_start) * 1000
 
-    return {
+    result: dict[str, Any] = {
         "structured_result": struct_res.get("structured_result"),
         "selected_test_id": struct_res.get("selected_test_id"),
         "selected_package_id": struct_res.get("selected_package_id"),
@@ -34,3 +39,21 @@ def combined_read_node(state: MediLabAgentState) -> dict[str, Any]:
         "route_trace": routes,
         "node_timings": timings,
     }
+
+    # Preserve a genuine no-knowledge outcome so the composer does not invent RAG facts.
+    if rag_res.get("response_goal") == "NO_KNOWLEDGE":
+        result["response_goal"] = "NO_KNOWLEDGE"
+
+    # Infrastructure retrieval failure must surface as a controlled error, not be hidden by
+    # the successful SQL half of the combined request.
+    if rag_res.get("response_goal") == "CONTROLLED_ERROR":
+        result.update(
+            {
+                "response_goal": "CONTROLLED_ERROR",
+                "response_draft": rag_res.get("response_draft"),
+                "final_response": rag_res.get("final_response"),
+                "controlled_errors": rag_res.get("controlled_errors", []),
+            }
+        )
+
+    return result
