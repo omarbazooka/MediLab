@@ -11,6 +11,7 @@ from app.services.customer_context_service import CustomerContextService
 def load_conversation_context(
     session_id: str,
     max_messages: int = 10,
+    max_customer_bookings: int = 5,
     conversation_repo: ConversationRepository | None = None,
     customer_service: CustomerContextService | None = None,
 ) -> dict[str, Any]:
@@ -22,7 +23,7 @@ def load_conversation_context(
     if session is None:
         session = repo.create_session(session_id=session_id)
 
-    # Bounded recent messages in chronological order
+    # Bounded recent messages in chronological order.
     all_msgs = session.messages or []
     bounded_msgs = all_msgs[-max_messages:] if len(all_msgs) > max_messages else all_msgs
     formatted_msgs = [
@@ -35,7 +36,7 @@ def load_conversation_context(
         for m in bounded_msgs
     ]
 
-    # Active search snapshot representation
+    # Active search snapshot representation.
     snapshot_data: dict[str, Any] | None = None
     if session.active_snapshot:
         snap = session.active_snapshot
@@ -47,10 +48,13 @@ def load_conversation_context(
             "items": snap.items,
         }
 
-    # Bounded customer context if session is associated with a customer
+    # Bounded customer context if session is associated with a customer.
     customer_context = None
     if session.customer_id:
-        customer_context = cust_service.get_customer_context(session.customer_id)
+        customer_context = cust_service.get_customer_context(
+            session.customer_id,
+            max_bookings=max_customer_bookings,
+        )
 
     return {
         "session_id": session.session_id,
