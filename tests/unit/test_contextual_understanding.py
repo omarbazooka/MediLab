@@ -11,7 +11,9 @@ from app.agent.schemas import AgentIntent, RequestPlan
 from app.agent.state import create_initial_state
 
 
-def test_understanding_receives_bounded_relevant_context_without_contact_identifiers(app: Flask) -> None:
+def test_understanding_receives_bounded_relevant_context_without_contact_identifiers(
+    app: Flask,
+) -> None:
     captured: dict[str, object] = {}
     fake = FakeLLMProvider()
 
@@ -64,6 +66,9 @@ def test_understanding_receives_bounded_relevant_context_without_contact_identif
     assert context["selected_test_code"] == "TSH"
     assert context["selected_test"]["name"] == "Thyroid Stimulating Hormone (TSH)"
     assert len(context["recent_conversation"]) == 2
-    assert context["customer_history_summary"]["recent_bookings"][0]["booking_reference"] == "MED-CTX-1"
+    assert (
+        context["customer_history_summary"]["recent_bookings"][0]["booking_reference"]
+        == "MED-CTX-1"
+    )
     assert "customer_phone" not in str(context)
     assert "Private Name" not in str(context)

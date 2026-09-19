@@ -34,7 +34,9 @@ def test_pending_action_and_timestamp_state_are_persisted(app: Flask) -> None:
 
         persist_context(state)
 
-        session = db.session.query(ConversationSession).filter_by(session_id="persist-valid-1").one()
+        session = (
+            db.session.query(ConversationSession).filter_by(session_id="persist-valid-1").one()
+        )
         assert session.pending_action == {"type": "BOOK_HOME_VISIT", "status": "PENDING"}
         assert session.current_state.get("last_updated_at")
         assert "last_turn_latency_ms" in session.current_state

@@ -83,7 +83,9 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
     )
     if has_action_success_claim and not _has_committed_action_success(state.get("action_result")):
         is_valid = False
-        reasons.append("Draft falsely claims action success without an explicit committed success result.")
+        reasons.append(
+            "Draft falsely claims action success without an explicit committed success result."
+        )
         repaired_text = (
             "لا أستطيع تأكيد تنفيذ هذا الإجراء من دون نتيجة ناجحة وموثقة من نظام الحجوزات."
             if language == "ar"

@@ -48,9 +48,7 @@ def test_multi_source_node_preserves_history_and_rag_evidence() -> None:
         "requires_rag": True,
         "requires_structured_data": False,
     }
-    state["customer_context"] = {
-        "bookings": [{"booking_reference": "MED-1", "items": ["CBC"]}]
-    }
+    state["customer_context"] = {"bookings": [{"booking_reference": "MED-1", "items": ["CBC"]}]}
 
     with (
         patch(

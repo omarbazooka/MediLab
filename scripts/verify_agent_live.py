@@ -29,6 +29,8 @@ if sys.platform == "win32":
     except AttributeError:
         pass
 
+from dotenv import load_dotenv
+
 from app import create_app
 from app.agent.graph import MediLabAgent
 from app.agent.llm.factory import get_llm_provider, set_override_llm_provider
@@ -39,8 +41,9 @@ from app.models.booking import Booking, BookingItem
 from app.models.branch import AvailabilitySlot, Branch
 from app.models.conversation import ConversationSession
 from app.models.customer import Customer
-from app.models.package import Package
 from app.models.test import LabTest
+
+load_dotenv()
 
 
 def _validate_disposable_database(test_url: str, app_url: str) -> None:
@@ -71,7 +74,9 @@ def _ensure_disposable_history_fixture() -> Customer:
     cbc = db.session.execute(db.select(LabTest).where(LabTest.code == "CBC")).scalar_one_or_none()
     branch = db.session.execute(db.select(Branch)).scalars().first()
     if cbc is None or branch is None:
-        raise RuntimeError("Disposable verification DB must be seeded with CBC and at least one branch.")
+        raise RuntimeError(
+            "Disposable verification DB must be seeded with CBC and at least one branch."
+        )
 
     slot = (
         db.session.execute(
@@ -202,7 +207,9 @@ def run_verification(use_real_llm: bool = False) -> int:
             selected_id = turn2.get("selected_package_id") or turn2.get("selected_test_id")
             visible_ids = {str(item.get("id") or item.get("entity_id")) for item in visible_items}
             if selected_id is None or str(selected_id) not in visible_ids:
-                failures.append("Turn 2 selection was not proven to come from the exact visible snapshot.")
+                failures.append(
+                    "Turn 2 selection was not proven to come from the exact visible snapshot."
+                )
             if turn2.get("pending_clarification") is not None:
                 failures.append("Turn 2 did not clear a resolved clarification.")
 

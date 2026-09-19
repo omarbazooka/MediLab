@@ -75,9 +75,7 @@ def compose_response(state: MediLabAgentState) -> dict[str, Any]:
             "package_id": state.get("selected_package_id"),
             "package_name": state.get("selected_package_name"),
         },
-        "customer_history": _safe_customer_history_for_llm(
-            state.get("customer_history_result")
-        ),
+        "customer_history": _safe_customer_history_for_llm(state.get("customer_history_result")),
         "structured_facts": state.get("structured_result") or {},
         "rag_outcome": rag_data.get("outcome"),
         "rag_context": rag_data.get("chunks", []),

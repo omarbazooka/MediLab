@@ -101,7 +101,9 @@ def test_numeric_limits_validation() -> None:
         BaseConfig.validate({**base, "MAX_RECENT_MESSAGES": 0})
 
 
-def test_testing_config_forces_fake_even_with_ambient_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_testing_config_forces_fake_even_with_ambient_gemini(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """A developer .env containing Gemini config must never make ordinary tests call Google."""
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
     monkeypatch.setenv("GEMINI_API_KEY", "ambient-real-like-secret")

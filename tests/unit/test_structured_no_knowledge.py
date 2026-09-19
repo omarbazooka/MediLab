@@ -19,7 +19,10 @@ def test_missing_test_returns_no_knowledge(app: Flask) -> None:
         state["entities"] = {"test_query": "XYZ"}
 
         with (
-            patch("app.agent.nodes.structured_data_node.TestService.get_test_by_code", return_value=None),
+            patch(
+                "app.agent.nodes.structured_data_node.TestService.get_test_by_code",
+                return_value=None,
+            ),
             patch("app.agent.nodes.structured_data_node.TestService.search_tests", return_value=[]),
         ):
             update = structured_data_node(state)

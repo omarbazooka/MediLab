@@ -92,7 +92,11 @@ def persist_context(state: MediLabAgentState) -> dict[str, Any]:
     session.pending_action = state.get("pending_action")
 
     snap_data = state.get("active_search_snapshot")
-    if snap_data and snap_data.get("id") and str(snap_data.get("status", "ACTIVE")).upper() == "ACTIVE":
+    if (
+        snap_data
+        and snap_data.get("id")
+        and str(snap_data.get("status", "ACTIVE")).upper() == "ACTIVE"
+    ):
         snap_id = snap_data["id"]
         snap_row = db.session.get(SearchSnapshot, snap_id)
         if snap_row and snap_row.session_id == session_id and snap_row.status == "ACTIVE":

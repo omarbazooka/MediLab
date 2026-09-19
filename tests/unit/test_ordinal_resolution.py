@@ -66,7 +66,13 @@ def test_ordinal_resolution_the_full_one(app: Flask) -> None:
             "id": 12,
             "status": "ACTIVE",
             "items": [
-                {"position": 1, "type": "test", "id": 1, "code": "TSH", "name": "Thyroid Stimulating Hormone"},
+                {
+                    "position": 1,
+                    "type": "test",
+                    "id": 1,
+                    "code": "TSH",
+                    "name": "Thyroid Stimulating Hormone",
+                },
                 {"position": 2, "type": "package", "id": 3, "name": "Vitality & Wellness Panel"},
             ],
         }
