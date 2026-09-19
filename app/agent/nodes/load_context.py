@@ -5,6 +5,8 @@ from __future__ import annotations
 import time
 from typing import Any
 
+from flask import current_app
+
 from app.agent.context import load_conversation_context
 from app.agent.state import MediLabAgentState
 
@@ -14,17 +16,20 @@ def load_context(state: MediLabAgentState) -> dict[str, Any]:
     t_start = time.perf_counter()
     timings = dict(state.get("node_timings", {}))
 
-    # If input_guard flagged an invalid input, skip context loading
+    # If input_guard flagged an invalid input, skip context loading.
     if not state.get("is_safe", True) and state.get("response_goal") == "CONTROLLED_ERROR":
         timings["load_context"] = (time.perf_counter() - t_start) * 1000
         return {"node_timings": timings}
 
     session_id = state["session_id"]
-    ctx = load_conversation_context(session_id=session_id)
+    ctx = load_conversation_context(
+        session_id=session_id,
+        max_messages=int(current_app.config.get("MAX_RECENT_MESSAGES", 10)),
+        max_customer_bookings=int(current_app.config.get("MAX_CUSTOMER_BOOKINGS", 5)),
+    )
 
     timings["load_context"] = (time.perf_counter() - t_start) * 1000
 
-    # Extract active snapshot
     active_snapshot = ctx.get("active_search_snapshot")
     pending_clarification = ctx.get("pending_clarification")
 
