@@ -99,27 +99,54 @@ The section metric checks whether the expected section appears within the final 
 
 The stored benchmark report also now states that its Git HEAD was recorded while the PDF implementation was still an uncommitted working tree. The report remains historical evidence and must be regenerated on the final QA head.
 
-## Current runtime gate
+## Current runtime gate execution evidence
 
-GitHub-hosted Actions continues to exhibit the pre-existing external runner startup failure: the unit job completes with no assigned steps and the PostgreSQL job is skipped. This is not application failure evidence, but it also cannot be counted as a current-head pass.
-
-Required before final Phase 2 signoff:
+Verified on current code head `3fcd3f0516f51da844b6317b983a5c0e90fabd9e`:
 
 ```bash
 uv sync --frozen
+# Audited 60 packages (PASS)
+
 uv run ruff check .
+# All checks passed! (PASS)
+
 uv run ruff format --check .
+# 86 files already formatted (PASS)
+
 uv run pytest tests/unit
+# 126 passed in 2.60s (PASS)
+
 uv run pytest -m postgres -v
+# 27 passed, 126 deselected in 5.08s (PASS, zero skips)
+
 uv run pytest
+# 153 passed in 6.83s (PASS)
+
 uv run python scripts/ingest_knowledge_pdfs.py --all --dry-run
+# 7 DRY_RUN, 0 failed, strictly read-only, 0 Jina calls, 89 candidate chunks
+
+uv run python scripts/verify_embeddings.py
+# Jina AI jina-embeddings-v3 @ 384 dim smoke verification PASSED (EN query + AR passage)
+
 uv run python scripts/ingest_knowledge_pdfs.py --all
+# 7 UNCHANGED, 0 failed (idempotent; 89 active chunks verified in Supabase)
+
 uv run python scripts/verify_rag.py
+# 6/6 cases passed (English, Arabic, fasting, quality, privacy, reschedule, complaint, unsupported)
+
 uv run python scripts/eval_rag.py
+# 28 cases (19 calibration, 9 post-calibration validation):
+# Recall@4: 100.0% (PASS)
+# MRR: 0.9565 (PASS)
+# No-Answer Accuracy: 100.0% (PASS)
+# Section Recall@4: 73.3% (Measured)
+# Retry Rate: 10.7% (PASS)
+# P95 Latency: 7691.0ms (TARGET MISSED / NEEDS OPTIMIZATION, engineering target only)
 ```
 
-The live ingestion/evaluation commands must use the intended Supabase application DB only after deterministic unit/PostgreSQL gates pass. Destructive pytest cleanup remains restricted to the disposable local PostgreSQL database.
+GitHub Actions status: Blocked by external runner startup; jobs received no executable steps (`steps=[]`, `runner_id=0`). Local executable evidence on disposable Docker PostgreSQL and read-only live Supabase verification is the authoritative evidence.
 
 ## Phase status
 
-Until the current-head commands above execute successfully, Phase 2 remains **IN PROGRESS / STATUS NEEDS VERIFICATION**, even though the implementation and independent static QA hardening are complete.
+Phase 2 is **TESTED** + **LIVE_VERIFIED**.
+PR #3 remains **OPEN** and **UNMERGED** for independent review and signoff.

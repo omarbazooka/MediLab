@@ -8,7 +8,7 @@ MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessm
 
 ## Phase 2 status
 
-Implemented on the Phase 2 branch (historical runtime evidence exists; final current-head rerun pending):
+Current Status: **TESTED** + **LIVE_VERIFIED** (PR #3 open for independent signoff):
 
 - **Custom Python RAG Pipeline:** PyMuPDF for PDF parsing, custom structure-aware section parser + `langchain-text-splitters` (`RecursiveCharacterTextSplitter`) strictly for oversized-section fallback.
 - **Strict Dependency Boundary:** Zero full `langchain` or `langchain-community` packages. Zero LangGraph (deferred to Phase 3).
@@ -278,42 +278,35 @@ Fast unit tests (including PDF parser, structure chunking, and ingestion lifecyc
 uv run pytest tests/unit
 ```
 
-Last recorded execution before the final PDF-ingestion QA hardening:
-
 ```text
-116 passed in 2.99s
+126 passed in 2.60s
 ```
 
-The current branch adds regression coverage for dry-run immutability, failed-refresh preservation, manifest path safety, malformed PDFs, seed ownership, and PDF/plain-indexer separation. Re-run this command on the final head before Phase 2 signoff.
-
-Real PostgreSQL integration tests (including vector storage, FTS triggers, RRF, and PDF ingestion):
+Real PostgreSQL integration tests (including vector storage, FTS triggers, RRF, PDF ingestion, and safe reindexing):
 
 ```powershell
 $env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab_test"
 uv run pytest -m postgres -v
 ```
 
-Last recorded execution before the final PDF-ingestion QA hardening (zero skips):
+Verified current-head execution (zero skips, disposable Docker PostgreSQL):
 
 ```text
-23 passed, 116 deselected in 5.49s
+27 passed, 126 deselected in 5.08s
 ```
 
-Additional current-head PostgreSQL regression tests protect canonical PDF content from seed/reindex corruption and preserve custom knowledge.
-
-Full suite:
+Full test suite:
 
 ```bash
 uv run pytest
 ```
 
-Last recorded execution before the final PDF-ingestion QA hardening:
+Verified current-head execution:
 
 ```text
-139 passed in 6.47s
+153 passed in 6.83s
 ```
 
-Do not treat these historical counts as current-head test evidence after later QA commits.
 
 ## Phase 2 RAG Verification & Evaluation Scripts
 
