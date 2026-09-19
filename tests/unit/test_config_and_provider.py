@@ -7,7 +7,7 @@ import pytest
 from app.agent.llm.factory import get_llm_provider
 from app.agent.llm.gemini_provider import GeminiProvider
 from app.agent.schemas import SafetyCategory
-from app.config import BaseConfig, ConfigurationError
+from app.config import BaseConfig, ConfigurationError, TestingConfig
 
 
 def test_gemini_config_missing_api_key_raises_error() -> None:
@@ -101,6 +101,18 @@ def test_numeric_limits_validation() -> None:
         BaseConfig.validate({**base, "MAX_RECENT_MESSAGES": 0})
 
 
+def test_testing_config_forces_fake_even_with_ambient_gemini(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A developer .env containing Gemini config must never make ordinary tests call Google."""
+    monkeypatch.setenv("LLM_PROVIDER", "gemini")
+    monkeypatch.setenv("GEMINI_API_KEY", "ambient-real-like-secret")
+
+    mapping = TestingConfig.as_mapping()
+
+    assert mapping["TESTING"] is True
+    assert mapping["LLM_PROVIDER"] == "fake"
+    assert mapping["GEMINI_API_KEY"] == ""
+
+
 def test_no_silent_fallback_in_factory(monkeypatch: pytest.MonkeyPatch) -> None:
     """Factory must raise ConfigurationError when Gemini credentials are missing, never return Fake."""
     monkeypatch.setenv("LLM_PROVIDER", "gemini")
@@ -137,5 +149,5 @@ def test_gemini_safety_fails_closed_on_provider_error(monkeypatch: pytest.Monkey
 
     assert classification.is_safe is False
     assert classification.category == SafetyCategory.OTHER_CLINICAL_UNSAFE
-    assert "failing closed" in (classification.reason or "")
+    assert classification.reason == "Safety classification unavailable; failing closed."
     assert "unit-test-secret" not in (classification.reason or "")
