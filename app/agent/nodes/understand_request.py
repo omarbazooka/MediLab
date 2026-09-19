@@ -84,6 +84,11 @@ def understand_request(state: MediLabAgentState) -> dict[str, Any]:
 
     context_summary = {
         "recent_conversation": _recent_conversation_summary(state),
+        "selected_test_id": state.get("selected_test_id"),
+        "selected_test_code": state.get("selected_test_code"),
+        "selected_test_name": state.get("selected_test_name"),
+        "selected_package_id": state.get("selected_package_id"),
+        "selected_package_name": state.get("selected_package_name"),
         "selected_test": (
             {
                 "id": state.get("selected_test_id"),
