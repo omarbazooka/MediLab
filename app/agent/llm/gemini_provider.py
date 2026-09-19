@@ -53,6 +53,69 @@ class GeminiProvider:
         sanitized = re.sub(r"key%3D[a-zA-Z0-9_\-]+", "key=[REDACTED]", sanitized)
         return sanitized
 
+    @staticmethod
+    def _normalize_optional_string_list(value: Any) -> Any:
+        """Normalize harmless Gemini JSON shape drift before strict Pydantic validation.
+
+        The model occasionally emits a scalar string for a list field or an empty object
+        for an empty list. We normalize only those unambiguous representation variants;
+        non-empty objects and other unexpected structures are left untouched so Pydantic
+        still rejects semantically invalid output.
+        """
+        if value is None:
+            return []
+        if isinstance(value, str):
+            stripped = value.strip()
+            return [stripped] if stripped else []
+        if isinstance(value, dict) and not value:
+            return []
+        return value
+
+    @classmethod
+    def _normalize_request_plan_payload(cls, payload: Any) -> Any:
+        """Normalize bounded representation-only drift without changing request meaning."""
+        if not isinstance(payload, dict):
+            return payload
+
+        normalized = dict(payload)
+        for key in ("requested_information", "references", "ambiguities"):
+            normalized[key] = cls._normalize_optional_string_list(normalized.get(key))
+
+        if normalized.get("entities") is None:
+            normalized["entities"] = {}
+
+        action_intent = normalized.get("action_intent")
+        if action_intent is False or action_intent == "":
+            normalized["action_intent"] = None
+        elif action_intent is True:
+            primary_intent = normalized.get("primary_intent")
+            if primary_intent in {
+                AgentIntent.BOOK_BRANCH_VISIT,
+                AgentIntent.BOOK_HOME_VISIT,
+                AgentIntent.CHECK_BOOKING,
+                AgentIntent.CANCEL_BOOKING,
+                AgentIntent.BOOK_BRANCH_VISIT.value,
+                AgentIntent.BOOK_HOME_VISIT.value,
+                AgentIntent.CHECK_BOOKING.value,
+                AgentIntent.CANCEL_BOOKING.value,
+            }:
+                normalized["action_intent"] = str(
+                    primary_intent.value if hasattr(primary_intent, "value") else primary_intent
+                )
+
+        language = normalized.get("language")
+        if isinstance(language, str):
+            language_key = language.strip().lower()
+            normalized["language"] = {
+                "english": "en",
+                "arabic": "ar",
+                "egyptian arabic": "ar",
+                "mixed language": "mixed",
+                "mixed-language": "mixed",
+            }.get(language_key, language_key or "en")
+
+        return normalized
+
     def _call_generate_content(
         self,
         contents: list[dict[str, Any]],
@@ -122,7 +185,14 @@ class GeminiProvider:
         system_instruction = (
             "You are a healthcare customer-service safety classifier for MediLab diagnostic laboratory.\n"
             "Use the current message and recent conversation context together.\n"
-            "Safe operational topics include prices, catalog definitions, preparation instructions from approved knowledge, policies, branches, availability, and booking process.\n"
+            "Classify whether the user is asking MediLab to make a CLINICAL judgment, not merely whether medical words or body systems are mentioned.\n"
+            "SAFE_OPERATIONAL includes prices, catalog definitions/search, available test or package options, preparation instructions from approved knowledge, policies, branches, availability, booking process, greetings, and non-clinical out-of-domain requests.\n"
+            "A user asking what thyroid/glucose/liver/kidney tests MediLab offers, or saying 'I need a thyroid-related test' without giving symptoms/results and without asking which test is medically necessary, is SAFE_OPERATIONAL; downstream catalog logic may clarify the option.\n"
+            "A non-clinical prompt-injection attempt or an unrelated request such as phone/laptop repair is also SAFE_OPERATIONAL for this clinical safety gate; downstream scope/security handling decides how to answer it.\n"
+            "SYMPTOM_BASED_TEST_RECOMMENDATION applies only when the user supplies symptoms/clinical context and asks which test they medically need or should take.\n"
+            "RESULT_INTERPRETATION applies when the user asks what a personal result means, whether it proves a diagnosis, or for clinical interpretation of a result.\n"
+            "MEDICATION_ADVICE applies when the user asks what medicine/treatment/dose to take.\n"
+            "OTHER_CLINICAL_UNSAFE covers other requests for clinical judgment, including emergency-triage instructions.\n"
             "Do not diagnose, clinically interpret a person's laboratory results, recommend medication or treatment, recommend medically necessary tests from symptoms, or provide emergency triage.\n"
             "Categories:\n"
             "- SAFE_OPERATIONAL\n"
@@ -181,6 +251,17 @@ class GeminiProvider:
             "Use these to understand follow-ups such as 'it', 'that one', or references to prior bookings. An explicit new correction from the user overrides older context.\n\n"
             "If the user semantically refers to one visible option, you may set entities.visible_item_id and entities.visible_item_type ONLY when exactly one visible option clearly matches. Copy the id/type exactly from visible_options. Never invent or select an item outside visible_options. If not uniquely resolvable, set needs_clarification=true. Explicit ordinal references may be returned as entities.ordinal_ref.\n\n"
             "Do not make clinical choices between tests based on symptoms. If selecting a test would require medical judgment, mark the request ambiguous/clarification-needed instead of recommending one.\n\n"
+            "STRICT JSON TYPE CONTRACT:\n"
+            "- primary_intent: one intent string from the list above.\n"
+            "- requested_information: JSON array of strings; use [] when none. Never return a scalar string.\n"
+            "- entities: JSON object; use {} when none.\n"
+            "- references: JSON array of strings; use [] when none. Never return {}.\n"
+            "- ambiguities: JSON array of strings; use [] when none.\n"
+            "- requires_structured_data/requires_rag/requires_customer_history/needs_clarification: JSON booleans.\n"
+            "- action_intent: a string or null, never true/false.\n"
+            "- clarification_target: a string or null.\n"
+            "- language: exactly 'en', 'ar', or 'mixed'.\n"
+            "Return one JSON object only, with no Markdown fencing or commentary.\n\n"
             "Output JSON keys: primary_intent, requested_information, entities, references, ambiguities, "
             "requires_structured_data, requires_rag, requires_customer_history, action_intent, "
             "needs_clarification, clarification_target, language."
@@ -194,7 +275,8 @@ class GeminiProvider:
             raw = self._call_generate_content(
                 contents, system_instruction=system_instruction, json_mode=True, temperature=0.0
             )
-            return RequestPlan(**json.loads(raw))
+            payload = self._normalize_request_plan_payload(json.loads(raw))
+            return RequestPlan(**payload)
         except Exception as exc:
             logger.error(
                 "Gemini understand_request failed: %s",
