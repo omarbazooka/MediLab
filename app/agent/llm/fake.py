@@ -545,7 +545,6 @@ class FakeLLMProvider:
                 text = (
                     "MediLab provides diagnostic laboratory testing and operational guidance. "
                     "We cannot diagnose conditions, prescribe medications, or interpret clinical results. "
-                    "In an emergency or severe symptoms, please seek immediate emergency care at the nearest hospital. "
                     "Please consult a qualified healthcare professional, doctor, or physician regarding medical decisions."
                 )
             return ResponseDraft(text=text, response_goal=ResponseGoal.SAFE_BOUNDARY)

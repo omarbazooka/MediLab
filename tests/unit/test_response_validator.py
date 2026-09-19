@@ -98,6 +98,11 @@ def test_response_validator_blocks_emergency_triage_guidance() -> None:
     assert any("emergency-triage" in r for r in update["validation_result"]["reasons"])
     assert "seek immediate emergency care" not in update["final_response"].lower()
     assert "qualified healthcare professional" in update["final_response"].lower()
+    assert "cannot diagnose" in update["final_response"].lower()
+    assert (
+        "doctor" in update["final_response"].lower()
+        or "physician" in update["final_response"].lower()
+    )
 
 
 def test_response_validator_blocks_ungrounded_price() -> None:

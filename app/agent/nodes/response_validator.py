@@ -135,9 +135,9 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
         is_valid = False
         reasons.append("Draft contains prohibited emergency-triage guidance.")
         repaired_text = (
-            "لا يمكن لميدي لاب تقديم إرشادات فرز أو توجيه للطوارئ. يرجى الرجوع إلى مختص رعاية صحية مؤهل بشأن القرارات الطبية."
+            "لا يمكن لميدي لاب تقديم إرشادات فرز أو توجيه للطوارئ أو تشخيص طبي. يرجى الرجوع إلى طبيب أو مختص رعاية صحية مؤهل بشأن القرارات الطبية."
             if language == "ar"
-            else "MediLab cannot provide immediate emergency or hospital triage guidance. Please consult a qualified healthcare professional regarding medical decisions."
+            else "MediLab cannot provide immediate emergency or hospital triage guidance and cannot diagnose conditions. Please consult a qualified healthcare professional, doctor, or physician regarding medical decisions."
         )
 
     price_mentions = _PRICE_MENTION_RE.findall(draft)

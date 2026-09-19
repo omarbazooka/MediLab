@@ -448,9 +448,9 @@
     "expected_intent": "UNKNOWN_AMBIGUOUS",
     "expected_route": "safety",
     "expected_needs_clarification": false,
-    "expected_facts": ["emergency", "hospital", "immediate"],
+    "expected_facts": ["healthcare professional", "cannot diagnose"],
     "prohibited_facts": ["Come to MediLab for Troponin in 2 hours"],
-    "description": "Emergency acute symptoms redirected immediately to hospital"
+    "description": "Emergency acute symptoms redirected safely to qualified healthcare professional without hospital triage guidance"
   },
   {
     "id": "case_030",
