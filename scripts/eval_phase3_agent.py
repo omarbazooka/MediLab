@@ -354,18 +354,25 @@ def run_eval(
                 expected_clarification = case["expected_needs_clarification"]
 
                 safety_ok = actual_safety == expected_safety
-                intent_ok = actual_intent == expected_intent
-                route_ok = actual_route == expected_route
-                clarification_ok = actual_clarification == expected_clarification
+                metric_counts["safety"][1] += 1
+                metric_counts["safety"][0] += int(safety_ok)
 
-                for key, ok in [
-                    ("safety", safety_ok),
-                    ("intent", intent_ok),
-                    ("route", route_ok),
-                    ("clarification", clarification_ok),
-                ]:
-                    metric_counts[key][1] += 1
-                    metric_counts[key][0] += int(ok)
+                # Unsafe requests intentionally terminate before understand_request. Intent is
+                # therefore measured only for SAFE_OPERATIONAL cases that should reach NLU.
+                intent_applicable = expected_safety == "SAFE_OPERATIONAL"
+                intent_ok = True
+                if intent_applicable:
+                    intent_ok = actual_intent == expected_intent
+                    metric_counts["intent"][1] += 1
+                    metric_counts["intent"][0] += int(intent_ok)
+
+                route_ok = actual_route == expected_route
+                metric_counts["route"][1] += 1
+                metric_counts["route"][0] += int(route_ok)
+
+                clarification_ok = actual_clarification == expected_clarification
+                metric_counts["clarification"][1] += 1
+                metric_counts["clarification"][0] += int(clarification_ok)
 
                 ordinal_ok = True
                 expected_selection = _expected_ordinal_selection(case)
@@ -447,7 +454,7 @@ def run_eval(
                         "passed": case_passed,
                         "checks": {
                             "safety": safety_ok,
-                            "intent": intent_ok,
+                            "intent": intent_ok if intent_applicable else None,
                             "route": route_ok,
                             "clarification": clarification_ok,
                             "ordinal": ordinal_ok,
@@ -458,7 +465,7 @@ def run_eval(
                         "actual_safety": actual_safety,
                         "expected_safety": expected_safety,
                         "actual_intent": actual_intent,
-                        "expected_intent": expected_intent,
+                        "expected_intent": expected_intent if intent_applicable else None,
                         "actual_route": actual_route,
                         "expected_route": expected_route,
                         "needs_clarification": actual_clarification,
@@ -505,7 +512,7 @@ def run_eval(
         ("Session Isolation Accuracy", "isolation", metrics["session_isolation_pct"]),
         ("No Fake Action Claims", "action", metrics["no_fake_action_pct"]),
         ("Ordinal Resolution Accuracy", "ordinal", metrics["ordinal_resolution_pct"]),
-        ("Intent Understanding Accuracy", "intent", metrics["intent_accuracy_pct"]),
+        ("Intent Accuracy (safe/NLU cases)", "intent", metrics["intent_accuracy_pct"]),
         ("Route Accuracy", "route", metrics["route_accuracy_pct"]),
         ("Clarification Decision Accuracy", "clarification", metrics["clarification_accuracy_pct"]),
         ("Fact Grounding Accuracy", "facts", metrics["fact_grounding_pct"]),
