@@ -17,14 +17,15 @@ def setup_db(app: Flask):
 
 
 def test_ordinal_resolution_second_item_english(app: Flask) -> None:
-    """Resolve 'the second one' deterministically to items[1] in visible snapshot."""
+    """Resolve 'the second one' deterministically to visible position 2."""
     with app.app_context():
         state = create_initial_state("sess-ord-1", "I will take the second one")
         state["active_search_snapshot"] = {
             "id": 10,
+            "status": "ACTIVE",
             "items": [
-                {"type": "test", "id": 101, "code": "TSH", "name": "TSH"},
-                {"type": "package", "id": 202, "name": "Vitality & Wellness Panel"},
+                {"position": 1, "type": "test", "id": 101, "code": "TSH", "name": "TSH"},
+                {"position": 2, "type": "package", "id": 202, "name": "Vitality & Wellness Panel"},
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
@@ -38,14 +39,15 @@ def test_ordinal_resolution_second_item_english(app: Flask) -> None:
 
 
 def test_ordinal_resolution_arabic_altany(app: Flask) -> None:
-    """Resolve 'التاني' in Arabic to the second item in visible snapshot."""
+    """Resolve 'التاني' in Arabic to the second visible item."""
     with app.app_context():
         state = create_initial_state("sess-ord-2", "عايز التاني")
         state["active_search_snapshot"] = {
             "id": 11,
+            "status": "ACTIVE",
             "items": [
-                {"type": "test", "id": 50, "code": "CBC", "name": "CBC"},
-                {"type": "test", "id": 51, "code": "FERRITIN", "name": "Ferritin"},
+                {"position": 1, "type": "test", "id": 50, "code": "CBC", "name": "CBC"},
+                {"position": 2, "type": "test", "id": 51, "code": "FERRITIN", "name": "Ferritin"},
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
@@ -57,18 +59,18 @@ def test_ordinal_resolution_arabic_altany(app: Flask) -> None:
 
 
 def test_ordinal_resolution_the_full_one(app: Flask) -> None:
-    """Resolve 'the full one' when LLM proposes visible package and Python verifies it in snapshot."""
+    """Resolve semantic follow-up only after LLM proposes a visible package."""
     with app.app_context():
         state = create_initial_state("sess-ord-3", "The full one please")
         state["active_search_snapshot"] = {
             "id": 12,
+            "status": "ACTIVE",
             "items": [
-                {"type": "test", "id": 1, "code": "TSH", "name": "Thyroid Stimulating Hormone"},
-                {"type": "package", "id": 3, "name": "Vitality & Wellness Panel"},
+                {"position": 1, "type": "test", "id": 1, "code": "TSH", "name": "Thyroid Stimulating Hormone"},
+                {"position": 2, "type": "package", "id": 3, "name": "Vitality & Wellness Panel"},
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
-        # LLM understanding proposed the visible package from snapshot
         state["entities"] = {"visible_item_id": 3, "visible_item_type": "package"}
 
         update = resolve_pending_context(state)
@@ -90,26 +92,48 @@ def test_ordinal_resolution_without_snapshot_does_not_guess(app: Flask) -> None:
         assert update["selected_package_id"] is None
 
 
-def test_the_full_option_cannot_escape_snapshot_when_only_tests_visible(app: Flask) -> None:
-    """Scenario A: If visible snapshot contains only individual tests, 'full option' must NOT arbitrarily pick a hidden package."""
+def test_stale_snapshot_cannot_resolve_ordinal(app: Flask) -> None:
+    """A stale snapshot must never back a visible positional reference."""
     with app.app_context():
-        state = create_initial_state("sess-ord-5", "I mean the full option")
+        state = create_initial_state("sess-ord-stale", "the second one")
         state["active_search_snapshot"] = {
-            "id": 15,
+            "id": 19,
+            "status": "STALE",
             "items": [
-                {"type": "test", "id": 101, "code": "TSH", "name": "TSH"},
-                {"type": "test", "id": 102, "code": "FT3", "name": "Free T3"},
-                {"type": "test", "id": 103, "code": "FT4", "name": "Free T4"},
+                {"position": 1, "type": "test", "id": 1, "name": "TSH"},
+                {"position": 2, "type": "package", "id": 3, "name": "Wellness Panel"},
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
         state["needs_clarification"] = True
-        # Even if proposed visible_item_id is 999 (a hidden package), Python rejects it because it's not in snapshot
+
+        update = resolve_pending_context(state)
+
+        assert update["selected_test_id"] is None
+        assert update["selected_package_id"] is None
+        assert update["needs_clarification"] is True
+        assert update["pending_clarification"] is not None
+
+
+def test_the_full_option_cannot_escape_snapshot_when_only_tests_visible(app: Flask) -> None:
+    """A semantic reference cannot select a package absent from the visible snapshot."""
+    with app.app_context():
+        state = create_initial_state("sess-ord-5", "I mean the full option")
+        state["active_search_snapshot"] = {
+            "id": 15,
+            "status": "ACTIVE",
+            "items": [
+                {"position": 1, "type": "test", "id": 101, "code": "TSH", "name": "TSH"},
+                {"position": 2, "type": "test", "id": 102, "code": "FT3", "name": "Free T3"},
+                {"position": 3, "type": "test", "id": 103, "code": "FT4", "name": "Free T4"},
+            ],
+        }
+        state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
+        state["needs_clarification"] = True
         state["entities"] = {"visible_item_id": 999, "visible_item_type": "package"}
 
         update = resolve_pending_context(state)
 
-        # Must NOT magically select a hidden package or arbitrarily pick test 2
         assert update["selected_package_id"] is None
         assert update["selected_test_id"] is None
         assert update["needs_clarification"] is True
@@ -117,19 +141,19 @@ def test_the_full_option_cannot_escape_snapshot_when_only_tests_visible(app: Fla
 
 
 def test_the_full_option_arabic_with_visible_package(app: Flask) -> None:
-    """Scenario B: In Arabic, 'الباقة الكاملة' resolves to the package item because it was visible."""
+    """Arabic semantic follow-up resolves only to an LLM-proposed visible package."""
     with app.app_context():
         state = create_initial_state("sess-ord-6", "أقصد الباقة الكاملة")
         state["active_search_snapshot"] = {
             "id": 16,
+            "status": "ACTIVE",
             "items": [
-                {"type": "test", "id": 1, "code": "TSH", "name": "TSH"},
-                {"type": "package", "id": 88, "name": "باقة الفحص الشامل"},
+                {"position": 1, "type": "test", "id": 1, "code": "TSH", "name": "TSH"},
+                {"position": 2, "type": "package", "id": 88, "name": "باقة الفحص الشامل"},
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
         state["needs_clarification"] = True
-        # LLM understanding proposed the visible package from snapshot
         state["entities"] = {"visible_item_id": 88, "visible_item_type": "package"}
 
         update = resolve_pending_context(state)
@@ -146,9 +170,10 @@ def test_ordinal_out_of_bounds_does_not_select(app: Flask) -> None:
         state = create_initial_state("sess-ord-7", "الرابع")
         state["active_search_snapshot"] = {
             "id": 17,
+            "status": "ACTIVE",
             "items": [
-                {"type": "test", "id": 1, "code": "TSH", "name": "TSH"},
-                {"type": "test", "id": 2, "code": "CBC", "name": "CBC"},
+                {"position": 1, "type": "test", "id": 1, "code": "TSH", "name": "TSH"},
+                {"position": 2, "type": "test", "id": 2, "code": "CBC", "name": "CBC"},
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
