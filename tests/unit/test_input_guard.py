@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from flask import Flask
+
 from app.agent.nodes.input_guard import MAX_INPUT_LENGTH, input_guard
 from app.agent.state import create_initial_state
 
@@ -29,7 +31,7 @@ def test_input_guard_empty_message() -> None:
 
 
 def test_input_guard_oversized_message() -> None:
-    """Messages exceeding maximum length boundary are rejected."""
+    """Messages exceeding the fallback maximum length boundary are rejected."""
     huge_msg = "A" * (MAX_INPUT_LENGTH + 50)
     state = create_initial_state("valid-session-123", huge_msg)
     update = input_guard(state)
@@ -37,6 +39,19 @@ def test_input_guard_oversized_message() -> None:
     assert update["is_safe"] is False
     assert update["response_goal"] == "CONTROLLED_ERROR"
     assert any("exceeds maximum" in err for err in update["controlled_errors"])
+
+
+def test_input_guard_honors_configured_max_length() -> None:
+    """MAX_INPUT_LENGTH from Flask config must not be a dead environment/config setting."""
+    app = Flask(__name__)
+    app.config["MAX_INPUT_LENGTH"] = 8
+    state = create_initial_state("valid-session-123", "123456789")
+
+    with app.app_context():
+        update = input_guard(state)
+
+    assert update["is_safe"] is False
+    assert "exceeds maximum 8" in " ".join(update["controlled_errors"])
 
 
 def test_input_guard_invalid_session_id() -> None:
