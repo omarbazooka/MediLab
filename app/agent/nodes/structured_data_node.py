@@ -37,19 +37,20 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
     selected_test_id = state.get("selected_test_id")
     selected_package_id = state.get("selected_package_id")
     entities = state.get("entities", {})
+    intent = state.get("intent") or ""
+    lookup_attempted = False
 
     try:
-        # 1. Resolve test details.
         test_obj = None
         if selected_test_id:
+            lookup_attempted = True
             test_obj = test_service.get_test_details(selected_test_id)
         elif entities.get("test_query"):
+            lookup_attempted = True
             query = str(entities["test_query"]).strip()
             test_obj = test_service.get_test_by_code(query)
             if not test_obj:
                 matched_tests = test_service.search_tests(query=query, active_only=True)
-                # The uncertainty gate should prevent ambiguous multi-match requests from
-                # reaching this point. A single match is safe to resolve deterministically.
                 if len(matched_tests) == 1:
                     test_obj = matched_tests[0]
 
@@ -65,11 +66,12 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
                 "turnaround": test_obj.result_turnaround_text,
             }
 
-        # 2. Resolve package details.
         package_obj = None
         if selected_package_id:
+            lookup_attempted = True
             package_obj = package_service.get_package_details(selected_package_id)
         elif entities.get("package_query"):
+            lookup_attempted = True
             query = str(entities["package_query"]).strip()
             search_query = None if query.lower() in ("all", "*", "") else query
             matched_packages = package_service.search_packages(query=search_query, active_only=True)
@@ -96,8 +98,8 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
                 "tests": [test.name for test in (package_obj.tests or [])],
             }
 
-        # 3. Resolve branch information.
-        if entities.get("branch_query") or state.get("intent") == "BRANCH_INFO":
+        if entities.get("branch_query") or intent == "BRANCH_INFO":
+            lookup_attempted = True
             branches = branch_service.list_active_branches()
             structured_facts["branches"] = [
                 {
@@ -126,11 +128,17 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
         }
 
     timings["structured_data_node"] = (time.perf_counter() - t_start) * 1000
-
-    return {
+    result: dict[str, Any] = {
         "structured_result": structured_facts,
         "selected_test_id": selected_test_id,
         "selected_package_id": selected_package_id,
         "route_trace": routes,
         "node_timings": timings,
     }
+
+    if lookup_attempted and not any(
+        value for key, value in structured_facts.items() if key in {"test", "package", "packages", "branches"}
+    ):
+        result["response_goal"] = "NO_KNOWLEDGE"
+
+    return result
