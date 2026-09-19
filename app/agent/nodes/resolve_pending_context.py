@@ -1,4 +1,4 @@
-"""Context resolution node for pending clarifications and visible ordinal references."""
+"""Context resolution node for pending clarifications and visible references."""
 
 from __future__ import annotations
 
@@ -39,18 +39,15 @@ ORDINAL_WORDS_MAP: dict[str, int] = {
 def _extract_ordinal_from_text(text: str) -> int | None:
     """Extract 1-based ordinal position from English or Arabic phrasing."""
     lower = text.lower()
-    # Check specific ordinal words first (second, third, first, etc.)
     for word, pos in ORDINAL_WORDS_MAP.items():
         pattern = rf"(?:\b|(?<=[\u0600-\u06FF])){re.escape(word)}(?:\b|(?=[\u0600-\u06FF]))"
         if re.search(pattern, lower):
             return pos
 
-    # Check for "رقم 2" or "number 2" or "option 2"
     num_match = re.search(r"(?:number|no\.?|option|رقم|خيار)\s*([1-9])", lower)
     if num_match:
         return int(num_match.group(1))
 
-    # Check standalone digits " 1 ", " 2 ", " 3 "
     digit_match = re.search(r"\b([1-9])\b", lower)
     if digit_match:
         return int(digit_match.group(1))
@@ -58,8 +55,23 @@ def _extract_ordinal_from_text(text: str) -> int | None:
     return None
 
 
+def _item_id(item: dict[str, Any]) -> Any:
+    return item.get("id") or item.get("entity_id")
+
+
+def _infer_item_type(item: dict[str, Any]) -> str:
+    explicit = item.get("type") or item.get("entity_type")
+    if explicit:
+        return str(explicit).lower()
+    code_str = str(item.get("code", "")).lower()
+    name_str = str(item.get("name", "")).lower()
+    if "pkg" in code_str or "package" in name_str or "panel" in name_str or "باقة" in name_str:
+        return "package"
+    return "test"
+
+
 def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
-    """Resolve pending clarification, ordinal references against visible SearchSnapshot, and explicit corrections."""
+    """Resolve pending clarification/reference state without allowing hidden candidate selection."""
     t_start = time.perf_counter()
     timings = dict(state.get("node_timings", {}))
 
@@ -75,63 +87,50 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
     selected_package_id = state.get("selected_package_id")
     needs_clarification = state.get("needs_clarification", False)
 
-    # 1. Explicit user override: check if user explicitly mentions a different test code
+    # 1. Explicit test code/name extraction may override an older selection only when
+    # deterministic catalog lookup proves the entity exists.
     test_repo = TestRepository()
     query_entity = entities.get("test_query")
     if query_entity and isinstance(query_entity, str):
         found_test = test_repo.get_by_code(query_entity)
         if found_test:
-            # Explicit statement overrides previous selection
             selected_test_id = found_test.id
             selected_package_id = None
             needs_clarification = False
             pending_clarification = None
 
-    # 2. Ordinal resolution against active SearchSnapshot
-    ordinal = entities.get("ordinal_ref")
-    if not ordinal:
-        ordinal = _extract_ordinal_from_text(user_msg)
+    # 2. Exact ordinals are deterministic. Semantic references are interpreted by the LLM
+    # understanding pass, which may propose visible_item_id/type. This node only validates
+    # that proposal against the exact active SearchSnapshot; it never searches hidden rows.
+    ordinal = entities.get("ordinal_ref") or _extract_ordinal_from_text(user_msg)
+    proposed_visible_id = entities.get("visible_item_id")
+    proposed_visible_type = entities.get("visible_item_type")
 
-    # Check for keywords like "the full one" or "الباقة" when choosing between options
-    is_full_option = any(
-        w in user_msg.lower() for w in ["full", "الكامل", "الكاملة", "باقة", "panel"]
-    )
+    if (ordinal or proposed_visible_id is not None) and active_snapshot and active_snapshot.get("items"):
+        items: list[dict[str, Any]] = active_snapshot["items"]
+        target_item: dict[str, Any] | None = None
 
-    if (ordinal or is_full_option) and active_snapshot and active_snapshot.get("items"):
-        items = active_snapshot["items"]
-        target_item = None
-
-        if is_full_option:
-            # Strictly match against visible items that are actually packages or panels
-            for it in items:
-                it_name = str(it.get("name", "")).lower()
-                it_type = str(it.get("type", "")).lower()
-                if it_type == "package" or any(
-                    k in it_name for k in ["panel", "package", "باقة", "شامل", "كامل"]
-                ):
-                    target_item = it
+        if ordinal:
+            try:
+                ordinal_pos = int(ordinal)
+            except (TypeError, ValueError):
+                ordinal_pos = 0
+            if 1 <= ordinal_pos <= len(items):
+                target_item = items[ordinal_pos - 1]
+        else:
+            for item in items:
+                same_id = str(_item_id(item)) == str(proposed_visible_id)
+                same_type = (
+                    proposed_visible_type is None
+                    or _infer_item_type(item) == str(proposed_visible_type).lower()
+                )
+                if same_id and same_type:
+                    target_item = item
                     break
-        elif ordinal and 1 <= ordinal <= len(items):
-            target_item = items[ordinal - 1]
 
-        # Verify candidate is genuinely part of the visible snapshot
-        visible_ids = {it.get("id") or it.get("entity_id") for it in items}
-        if target_item and (target_item.get("id") or target_item.get("entity_id")) in visible_ids:
-            item_id = target_item.get("id") or target_item.get("entity_id")
-            item_type = target_item.get("type") or target_item.get("entity_type")
-            if not item_type:
-                code_str = str(target_item.get("code", "")).lower()
-                name_str = str(target_item.get("name", "")).lower()
-                if (
-                    "pkg" in code_str
-                    or "package" in name_str
-                    or "panel" in name_str
-                    or "باقة" in name_str
-                ):
-                    item_type = "package"
-                else:
-                    item_type = "test"
-
+        if target_item is not None:
+            item_id = _item_id(target_item)
+            item_type = _infer_item_type(target_item)
             if item_type == "package":
                 selected_package_id = item_id
                 selected_test_id = None
@@ -141,13 +140,16 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
                 selected_package_id = None
                 entities["test_query"] = target_item.get("name") or target_item.get("code")
 
-            # Successfully resolved pending choice from visible snapshot!
             pending_clarification = None
             needs_clarification = False
+        elif pending_clarification:
+            # The LLM proposed a non-visible/invalid reference or an ordinal is out of range.
+            # Preserve the turn-based clarification loop rather than guessing.
+            needs_clarification = True
 
-    # 3. If pending clarification was active and user provided a resolving answer
+    # 3. If a pending clarification was active and a deterministic/validated entity has
+    # actually resolved it in this turn, clear the pending state.
     if pending_clarification and not needs_clarification:
-        # Clarification was resolved in this turn
         pending_clarification = None
 
     timings["resolve_pending_context"] = (time.perf_counter() - t_start) * 1000
