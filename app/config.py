@@ -140,7 +140,6 @@ class BaseConfig:
                 f"Invalid LOG_LEVEL '{log_level}'. Must be one of: {valid_str}"
             )
 
-        # Validate embedding settings
         provider = str(config.get("EMBEDDING_PROVIDER", "")).strip().lower()
         if provider not in {"jina"}:
             raise ConfigurationError(
@@ -157,7 +156,6 @@ class BaseConfig:
                 f"MediLab Jina embedding configuration expects dimension 384, got {dimension}."
             )
 
-        # Validate LLM provider settings (Gemini is the only real provider)
         llm_provider = str(config.get("LLM_PROVIDER", "")).strip().lower()
         if llm_provider not in {"gemini", "fake"}:
             raise ConfigurationError(
@@ -219,7 +217,7 @@ class DevelopmentConfig(BaseConfig):
 
 
 class TestingConfig(BaseConfig):
-    """Fast isolated defaults for unit tests."""
+    """Fast isolated defaults for unit/integration tests."""
 
     APP_ENV = "testing"
     TESTING = True
@@ -234,6 +232,11 @@ class TestingConfig(BaseConfig):
         mapping["SQLALCHEMY_DATABASE_URI"] = os.getenv(
             "TEST_DATABASE_URL", cls.DEFAULT_DATABASE_URL
         )
+        # Tests must never inherit a real Gemini provider/key merely because the local
+        # developer .env contains production-like runtime configuration. A test may still
+        # explicitly override this mapping through create_app(..., test_config=...).
+        mapping["LLM_PROVIDER"] = "fake"
+        mapping["GEMINI_API_KEY"] = ""
         return mapping
 
 
@@ -268,8 +271,6 @@ class ProductionConfig(BaseConfig):
             )
 
         try:
-            # urllib validates authority syntax (including malformed IPv6 brackets),
-            # while SQLAlchemy validates/normalizes the database URL dialect.
             split_url = urlsplit(database_url)
             _ = split_url.hostname
             parsed_url = make_url(database_url)
