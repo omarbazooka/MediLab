@@ -112,6 +112,34 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
             else "MediLab provides diagnostic laboratory services. We do not provide clinical diagnoses or prescriptions. Please consult a qualified healthcare professional."
         )
 
+    # MediLab is not an emergency-triage service. Even an LLM/test-double safety
+    # response must not tell a customer where to go, whom to call, or how urgently
+    # to seek emergency care. Keep the boundary informational and direct medical
+    # decisions to a qualified healthcare professional instead.
+    has_emergency_triage_guidance = any(
+        phrase in lower_draft
+        for phrase in [
+            "seek immediate emergency care",
+            "go to the emergency room",
+            "go to the nearest hospital",
+            "nearest hospital",
+            "call emergency services",
+            "call an ambulance",
+            "اذهب إلى الطوارئ",
+            "توجه إلى الطوارئ",
+            "أقرب مستشفى",
+            "اتصل بالإسعاف",
+        ]
+    )
+    if has_emergency_triage_guidance:
+        is_valid = False
+        reasons.append("Draft contains prohibited emergency-triage guidance.")
+        repaired_text = (
+            "لا يمكن لميدي لاب تقديم إرشادات فرز أو توجيه للطوارئ. يرجى الرجوع إلى مختص رعاية صحية مؤهل بشأن القرارات الطبية."
+            if language == "ar"
+            else "MediLab cannot provide immediate emergency or hospital triage guidance. Please consult a qualified healthcare professional regarding medical decisions."
+        )
+
     price_mentions = _PRICE_MENTION_RE.findall(draft)
     if price_mentions:
         structured = state.get("structured_result") or {}
