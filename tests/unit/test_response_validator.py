@@ -23,9 +23,7 @@ def test_response_validator_accepts_grounded_price_from_nested_results() -> None
     state = create_initial_state("session-val-list", "Show packages")
     state["response_draft"] = "The package is 980.00 EGP."
     state["structured_result"] = {
-        "packages": [
-            {"name": "Vitality & Wellness Panel", "price": "980.00 EGP"},
-        ]
+        "packages": [{"name": "Vitality & Wellness Panel", "price": "980.00 EGP"}]
     }
 
     update = response_validator(state)
@@ -42,9 +40,36 @@ def test_response_validator_blocks_fake_booking_confirmation() -> None:
     update = response_validator(state)
 
     assert update["validation_result"]["is_valid"] is False
-    assert any("falsely claims booking" in r for r in update["validation_result"]["reasons"])
-    assert "booking is confirmed" not in update["final_response"]
-    assert "direct automated booking is not currently active" in update["final_response"]
+    assert any("falsely claims action success" in r for r in update["validation_result"]["reasons"])
+    assert "booking is confirmed" not in update["final_response"].lower()
+
+
+def test_response_validator_blocks_success_claim_for_failed_action_result() -> None:
+    """A non-null failed action result never authorizes a customer-facing success claim."""
+    state = create_initial_state("session-val-failed-action", "Cancel booking")
+    state["response_draft"] = "Your booking was cancelled successfully."
+    state["action_result"] = {"success": False, "committed": False, "error": "conflict"}
+
+    update = response_validator(state)
+
+    assert update["validation_result"]["is_valid"] is False
+    assert "cancelled successfully" not in update["final_response"].lower()
+
+
+def test_response_validator_allows_claim_with_explicit_committed_success() -> None:
+    """Phase 4 may authorize success only with explicit committed-success truth."""
+    state = create_initial_state("session-val-success-action", "Cancel booking")
+    state["response_draft"] = "Your booking was cancelled successfully."
+    state["action_result"] = {
+        "success": True,
+        "committed": True,
+        "booking_reference": "MED-123",
+    }
+
+    update = response_validator(state)
+
+    assert update["validation_result"]["is_valid"] is True
+    assert update["final_response"] == "Your booking was cancelled successfully."
 
 
 def test_response_validator_blocks_clinical_diagnosis() -> None:
@@ -56,7 +81,7 @@ def test_response_validator_blocks_clinical_diagnosis() -> None:
 
     assert update["validation_result"]["is_valid"] is False
     assert any("prohibited medical diagnosis" in r for r in update["validation_result"]["reasons"])
-    assert "consult a doctor" in update["final_response"]
+    assert "qualified healthcare professional" in update["final_response"]
 
 
 def test_response_validator_blocks_ungrounded_price() -> None:
