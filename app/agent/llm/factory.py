@@ -82,7 +82,10 @@ def get_llm_provider(
         ).strip()
         timeout = float(config.get("LLM_TIMEOUT_SECONDS") or os.getenv("LLM_TIMEOUT_SECONDS", 30.0))
         temperature = float(config.get("LLM_TEMPERATURE") or os.getenv("LLM_TEMPERATURE", 0.0))
-        max_retries = int(config.get("LLM_MAX_RETRIES") or os.getenv("LLM_MAX_RETRIES", 1))
+        raw_retries = config.get("LLM_MAX_RETRIES")
+        if raw_retries is None or raw_retries == "":
+            raw_retries = os.getenv("LLM_MAX_RETRIES", "1")
+        max_retries = int(raw_retries)
 
         return GeminiProvider(
             api_key=resolved_api_key,

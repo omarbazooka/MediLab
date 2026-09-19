@@ -153,3 +153,14 @@ def test_gemini_safety_fails_closed_on_provider_error(monkeypatch: pytest.Monkey
     assert classification.category == SafetyCategory.OTHER_CLINICAL_UNSAFE
     assert classification.reason == "Safety classification unavailable; failing closed."
     assert "unit-test-secret" not in (classification.reason or "")
+
+
+def test_factory_honors_zero_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """LLM_MAX_RETRIES=0 must be respected and not overridden by falsy default."""
+    monkeypatch.setenv("LLM_MAX_RETRIES", "0")
+    provider = get_llm_provider(
+        provider_name="gemini",
+        api_key="unit-test-secret",
+    )
+    assert isinstance(provider, GeminiProvider)
+    assert provider.max_retries == 0

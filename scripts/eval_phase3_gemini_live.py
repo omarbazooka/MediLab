@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 import subprocess
 import sys
 import time
@@ -128,6 +129,12 @@ def run_live_gemini_eval() -> int:
             print(f"\n[BLOCKED] Cannot run live Gemini evaluation: {exc}")
             return 2
 
+        pacing_raw = os.getenv("GEMINI_LIVE_PACING_SECONDS", "16").strip()
+        try:
+            pacing_seconds = float(pacing_raw) if pacing_raw else 16.0
+        except ValueError:
+            pacing_seconds = 16.0
+
         if not isinstance(provider, GeminiProvider):
             print(
                 f"\n[ERROR] Active provider is {type(provider).__name__}; GeminiProvider required."
@@ -137,6 +144,8 @@ def run_live_gemini_eval() -> int:
         print("Provider        : GeminiProvider (REAL_LLM)")
         print(f"Model           : {provider.model}")
         print(f"Timeout (s)     : {provider.timeout}")
+        print(f"Max Retries     : {provider.max_retries}")
+        print(f"Pacing (s)      : {pacing_seconds:.1f}s between cases")
         print(f"API Key Present : {'Yes' if bool(provider.api_key) else 'No'}")
         print(f"Git Commit      : {get_git_commit()}")
         print("=" * 80)
@@ -147,6 +156,12 @@ def run_live_gemini_eval() -> int:
             print(f"\n[BLOCKED] Gemini API call failed: {smoke.reason}")
             print("No FakeLLM fallback was used.")
             return 2
+
+        if pacing_seconds > 0:
+            print(
+                f"Pacing {pacing_seconds:.1f}s after smoke check before first case to protect quota..."
+            )
+            time.sleep(pacing_seconds)
 
         eval_file = Path(__file__).resolve().parent.parent / "evals" / "phase3_agent_cases.json"
         with open(eval_file, encoding="utf-8") as handle:
@@ -174,6 +189,9 @@ def run_live_gemini_eval() -> int:
         total_latencies: list[float] = []
 
         for index, case in enumerate(cases, start=1):
+            if index > 1 and pacing_seconds > 0:
+                print(f"Pacing {pacing_seconds:.1f}s before case {index}/{len(cases)}...")
+                time.sleep(pacing_seconds)
             session_id = f"live-eval-{uuid.uuid4().hex[:10]}"
             started = time.perf_counter()
             result = agent.run_turn(session_id, case["user_message"])
