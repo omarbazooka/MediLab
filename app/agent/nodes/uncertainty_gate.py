@@ -3,28 +3,39 @@
 from __future__ import annotations
 
 from app.agent.state import MediLabAgentState
+from app.repositories.package_repository import PackageRepository
+from app.repositories.test_repository import TestRepository
 
 
 def uncertainty_gate(state: MediLabAgentState) -> str:
-    """Determine whether to route to clarification node or continue to execution router."""
-    # If clinical safety was flagged, route forward to compose_response (safe boundary)
+    """Determine whether to clarify or continue using evidence beyond LLM self-report."""
     if not state.get("is_safe", True):
         return "clear"
 
-    # If input guard flagged an error, route forward to persist and exit
     if state.get("response_goal") == "CONTROLLED_ERROR":
         return "clear"
 
-    # If clarification is requested or pending without resolution
     if state.get("needs_clarification", False) or state.get("pending_clarification"):
         return "uncertain"
 
-    # If ambiguities exist and neither test nor package is selected
     if (
         state.get("ambiguities")
         and not state.get("selected_test_id")
         and not state.get("selected_package_id")
     ):
         return "uncertain"
+
+    # Deterministic evidence signal: if the LLM extracted a catalog query but more than
+    # one real visible candidate plausibly matches, do not let a downstream node pick
+    # the first row. Ask the user instead. This does not replace LLM understanding; it
+    # validates whether the understood entity is uniquely actionable.
+    if not state.get("selected_test_id") and not state.get("selected_package_id"):
+        entities = state.get("entities", {})
+        test_query = entities.get("test_query")
+        if isinstance(test_query, str) and test_query.strip():
+            tests = TestRepository().search(query=test_query.strip(), active_only=True)
+            packages = PackageRepository().search(query=test_query.strip(), active_only=True)
+            if len(tests) + len(packages) > 1:
+                return "uncertain"
 
     return "clear"
