@@ -1,24 +1,12 @@
-"""Evaluation runner for MediLab Phase 3 LangGraph Agent Benchmark.
+"""Strict deterministic evaluation runner for MediLab Phase 3 LangGraph agent.
 
-Evaluates:
-- Safety classification accuracy
-- Intent / Request-Plan accuracy
-- Route accuracy
-- Clarification decision accuracy
-- Ordinal reference resolution accuracy
-- Session & customer isolation accuracy
-- Structured fact verification from SQL
-- RAG grounding correctness
-- Combined SQL+RAG execution accuracy
-- No-unsupported-action-claim accuracy (Phase 4 boundary)
-- Controlled out-of-domain / no-knowledge handling
-- Latency statistics (Understanding P50/P95, Composition P50/P95, Total P50/P95)
-- Calibration vs Post-implementation validation splits
+This benchmark intentionally uses FakeLLMProvider to make graph/state/business-grounding
+regressions repeatable. It is NOT a live-Gemini quality benchmark. Real Gemini behavior is
+evaluated separately by ``scripts/eval_phase3_gemini_live.py``.
 
-Usage:
-    uv run python scripts/eval_phase3_agent.py
-    uv run python scripts/eval_phase3_agent.py --real-llm
-    uv run python scripts/eval_phase3_agent.py --split post_implementation_validation
+The runner measures exact safety category, intent, route, clarification, visible ordinal
+selection, session/customer isolation, action-boundary integrity, fact grounding, and latency.
+It uses TEST_DATABASE_URL only; it must never mutate the durable application/Supabase DB.
 """
 
 from __future__ import annotations
@@ -26,6 +14,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import subprocess
 import sys
 import time
@@ -35,6 +24,7 @@ from datetime import time as dt_time
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -47,7 +37,7 @@ if sys.platform == "win32":
 
 from app import create_app
 from app.agent.graph import MediLabAgent
-from app.agent.llm.factory import get_llm_provider, set_override_llm_provider
+from app.agent.llm.factory import set_override_llm_provider
 from app.agent.llm.fake import FakeLLMProvider
 from app.extensions import db
 from app.models.booking import Booking, BookingItem
@@ -58,487 +48,534 @@ from app.models.snapshot import SearchSnapshot
 from app.models.test import LabTest
 
 
+OWN_BOOKING_REF = "MEDILAB-EVAL-001"
+OTHER_BOOKING_REF = "MEDILAB-EVAL-OTHER"
+
+
 def get_git_commit() -> str:
     """Return current git commit SHA."""
     try:
-        res = subprocess.run(
+        result = subprocess.run(
             ["git", "rev-parse", "HEAD"],
             capture_output=True,
             text=True,
             check=True,
         )
-        return res.stdout.strip()[:12]
+        return result.stdout.strip()[:12]
     except Exception:
         return "unknown"
 
 
 def compute_percentile(data: list[float], p: float) -> float:
-    """Compute interpolated percentile value from float series."""
+    """Compute interpolated percentile value."""
     if not data:
         return 0.0
-    sorted_data = sorted(data)
-    n = len(sorted_data)
-    if n == 1:
-        return float(sorted_data[0])
-    rank = p * (n - 1)
-    k = math.floor(rank)
-    d = rank - k
-    if k + 1 < n:
-        return float(sorted_data[k] + d * (sorted_data[k + 1] - sorted_data[k]))
-    return float(sorted_data[k])
+    values = sorted(data)
+    if len(values) == 1:
+        return float(values[0])
+    rank = p * (len(values) - 1)
+    low = math.floor(rank)
+    fraction = rank - low
+    if low + 1 < len(values):
+        return float(values[low] + fraction * (values[low + 1] - values[low]))
+    return float(values[low])
+
+
+def _enum_value(value: Any) -> str:
+    return str(value.value if hasattr(value, "value") else value or "")
+
+
+def _derive_route(result: dict[str, Any]) -> str:
+    route_trace = result.get("route_trace", [])
+    if not result.get("is_safe", True):
+        return "safety"
+    route_nodes = [
+        ("clarification_node", "clarification"),
+        ("combined_read_node", "combined_read"),
+        ("structured_data_node", "structured_data"),
+        ("rag_node", "rag"),
+        ("customer_history_node", "customer_history"),
+        ("action_boundary_node", "action_boundary"),
+        ("general_node", "general"),
+    ]
+    for node, route in route_nodes:
+        if node in route_trace:
+            return route
+    return "unknown"
+
+
+def _actual_safety_category(result: dict[str, Any]) -> str:
+    classification = result.get("safety_classification") or {}
+    category = classification.get("category") if isinstance(classification, dict) else None
+    if category:
+        return _enum_value(category)
+    return "SAFE_OPERATIONAL" if result.get("is_safe", True) else "OTHER_CLINICAL_UNSAFE"
+
+
+def _infer_snapshot_item_type(item: dict[str, Any]) -> str:
+    explicit = item.get("type") or item.get("entity_type")
+    if explicit:
+        return str(explicit).lower()
+    code = str(item.get("code", "")).lower()
+    name = str(item.get("name", "")).lower()
+    if "pkg" in code or "package" in name or "panel" in name or "باقة" in name:
+        return "package"
+    return "test"
+
+
+def _expected_ordinal_selection(case: dict[str, Any]) -> tuple[str, Any] | None:
+    """Return exact expected entity type/id from the case's visible snapshot and utterance."""
+    if case.get("category") != "ordinal_reference":
+        return None
+    items = case.get("session_setup", {}).get("active_snapshot_items", [])
+    message = case.get("user_message", "").lower()
+    position = None
+    if any(token in message for token in ["second", "2nd", "التاني", "الثاني", "رقم 2"]):
+        position = 2
+    elif any(token in message for token in ["first", "1st", "الأول", "الاول", "الأولاني", "رقم 1"]):
+        position = 1
+    elif any(token in message for token in ["third", "3rd", "التالت", "الثالث", "رقم 3"]):
+        position = 3
+    if position is None or not (1 <= position <= len(items)):
+        return None
+    item = items[position - 1]
+    item_id = item.get("id") or item.get("entity_id")
+    return _infer_snapshot_item_type(item), item_id
+
+
+def _validate_test_database_url(test_url: str, app_url: str) -> None:
+    if not test_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        raise RuntimeError("TEST_DATABASE_URL must be a PostgreSQL URL for Phase 3 evaluation.")
+    normalized = test_url.replace("postgresql+psycopg://", "postgresql://")
+    parsed = urlparse(normalized)
+    hostname = (parsed.hostname or "").lower()
+    if "supabase" in hostname or "supabase.co" in hostname:
+        raise RuntimeError("Refusing to run deterministic evaluation against Supabase.")
+    if app_url and test_url == app_url:
+        raise RuntimeError("TEST_DATABASE_URL must not equal DATABASE_URL.")
+
+
+def _ensure_eval_booking(
+    customer: Customer,
+    branch: Branch,
+    slot: AvailabilitySlot,
+    test_cbc: LabTest | None,
+    reference: str,
+    idempotency_key: str,
+) -> None:
+    existing = db.session.execute(
+        db.select(Booking).where(Booking.booking_reference == reference)
+    ).scalar_one_or_none()
+    if existing:
+        return
+    booking = Booking(
+        customer_id=customer.id,
+        branch_id=branch.id,
+        availability_slot_id=slot.id,
+        booking_reference=reference,
+        scheduled_date=date.today(),
+        scheduled_time=dt_time(10, 0),
+        status="CONFIRMED",
+        visit_type="BRANCH",
+        idempotency_key=idempotency_key,
+    )
+    db.session.add(booking)
+    db.session.flush()
+    if test_cbc:
+        db.session.add(
+            BookingItem(
+                booking_id=booking.id,
+                test_id=test_cbc.id,
+                unit_price_snapshot=Decimal("250.00"),
+            )
+        )
+
+
+def _prepare_eval_fixtures() -> Customer:
+    """Create two synthetic customers so isolation can be checked both positively and negatively."""
+    own = db.session.execute(
+        db.select(Customer).where(Customer.phone == "+201099988877")
+    ).scalar_one_or_none()
+    if own is None:
+        own = Customer(name="Eval Patient", phone="+201099988877", email="eval@example.com")
+        db.session.add(own)
+        db.session.flush()
+
+    other = db.session.execute(
+        db.select(Customer).where(Customer.phone == "+201099988878")
+    ).scalar_one_or_none()
+    if other is None:
+        other = Customer(
+            name="Other Eval Patient",
+            phone="+201099988878",
+            email="other-eval@example.com",
+        )
+        db.session.add(other)
+        db.session.flush()
+
+    branch = db.session.execute(db.select(Branch)).scalars().first()
+    if branch is None:
+        raise RuntimeError("Evaluation database must be seeded with at least one branch.")
+
+    slot = (
+        db.session.execute(
+            db.select(AvailabilitySlot).where(AvailabilitySlot.branch_id == branch.id)
+        )
+        .scalars()
+        .first()
+    )
+    if slot is None:
+        slot = AvailabilitySlot(
+            branch_id=branch.id,
+            visit_type="BRANCH",
+            date=date.today(),
+            time=dt_time(10, 0),
+            capacity=5,
+            reserved_count=0,
+            active=True,
+        )
+        db.session.add(slot)
+        db.session.flush()
+
+    test_cbc = db.session.execute(
+        db.select(LabTest).where(LabTest.code == "CBC")
+    ).scalar_one_or_none()
+    _ensure_eval_booking(own, branch, slot, test_cbc, OWN_BOOKING_REF, "idemp-eval-own")
+    _ensure_eval_booking(other, branch, slot, test_cbc, OTHER_BOOKING_REF, "idemp-eval-other")
+    db.session.commit()
+    return own
 
 
 def run_eval(
     split_filter: str | None = None,
-    use_real_llm: bool = False,
     output_json_path: Path | None = None,
 ) -> int:
-    """Run Phase 3 evaluation benchmark."""
+    """Run strict deterministic Phase 3 benchmark on the disposable test database."""
     eval_file = Path(__file__).resolve().parent.parent / "evals" / "phase3_agent_cases.json"
-    if not eval_file.exists():
-        print(f"ERROR: Dataset {eval_file} not found.", file=sys.stderr)
-        return 1
-
-    with open(eval_file, encoding="utf-8") as f:
-        cases: list[dict[str, Any]] = json.load(f)
-
+    with open(eval_file, encoding="utf-8") as handle:
+        cases: list[dict[str, Any]] = json.load(handle)
     if split_filter and split_filter != "all":
-        cases = [c for c in cases if c.get("split") == split_filter]
+        cases = [case for case in cases if case.get("split") == split_filter]
+
+    test_db_url = os.getenv("TEST_DATABASE_URL", "").strip()
+    app_db_url = os.getenv("DATABASE_URL", "").strip()
+    if not test_db_url:
+        print("ERROR: TEST_DATABASE_URL is required for deterministic evaluation.", file=sys.stderr)
+        return 2
+    try:
+        _validate_test_database_url(test_db_url, app_db_url)
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
 
     print("=" * 80)
-    print("MEDILAB AI — PHASE 3 AGENT BENCHMARK EVALUATION")
+    print("MEDILAB AI — PHASE 3 DETERMINISTIC GRAPH EVALUATION")
     print("=" * 80)
-    commit = get_git_commit()
-    print(f"Git Commit SHA  : {commit}")
+    print(f"Git Commit SHA  : {get_git_commit()}")
     print(f"Total Cases     : {len(cases)}")
     print(f"Split Filter    : {split_filter or 'all'}")
-    print(f"Mode            : {'REAL_LLM' if use_real_llm else 'DETERMINISTIC_BENCHMARK'}")
+    print("Provider        : FakeLLMProvider (DETERMINISTIC TEST DOUBLE)")
+    print("Database        : TEST_DATABASE_URL (disposable PostgreSQL)")
     print("=" * 80)
 
-    app = create_app()
-
-    if not use_real_llm:
-        eval_llm = FakeLLMProvider()
-        set_override_llm_provider(eval_llm)
-    else:
-        llm = get_llm_provider()
-        print(f"Active Provider : {llm.__class__.__name__}")
-
+    app = create_app(
+        "testing",
+        test_config={
+            "SQLALCHEMY_DATABASE_URI": test_db_url,
+            "LLM_PROVIDER": "fake",
+        },
+    )
+    fake_llm = FakeLLMProvider()
+    set_override_llm_provider(fake_llm)
     agent = MediLabAgent()
 
     results: list[dict[str, Any]] = []
-    latencies_understanding: list[float] = []
-    latencies_composition: list[float] = []
-    latencies_total: list[float] = []
+    understanding_latencies: list[float] = []
+    composition_latencies: list[float] = []
+    total_latencies: list[float] = []
 
-    # Metrics counters
-    safety_total = 0
-    safety_correct = 0
-    intent_correct = 0
-    route_correct = 0
-    clarification_correct = 0
-    ordinal_total = 0
-    ordinal_correct = 0
-    isolation_total = 0
-    isolation_correct = 0
-    no_fake_action_total = 0
-    no_fake_action_correct = 0
-    fact_correct = 0
-
-    with app.app_context():
-        # Ensure test customer with booking exists for customer history cases
-        cust = db.session.execute(
-            db.select(Customer).where(Customer.phone == "+201099988877")
-        ).scalar_one_or_none()
-        if not cust:
-            cust = Customer(name="Eval Patient", phone="+201099988877", email="eval@example.com")
-            db.session.add(cust)
-            db.session.flush()
-
-        test_cbc = db.session.execute(
-            db.select(LabTest).where(LabTest.code == "CBC")
-        ).scalar_one_or_none()
-        branch = db.session.execute(db.select(Branch)).scalars().first()
-        if branch:
-            slot = (
-                db.session.execute(
-                    db.select(AvailabilitySlot).where(AvailabilitySlot.branch_id == branch.id)
-                )
-                .scalars()
-                .first()
-            )
-            if not slot:
-                slot = AvailabilitySlot(
-                    branch_id=branch.id,
-                    visit_type="BRANCH",
-                    date=date.today(),
-                    time=dt_time(10, 0),
-                    capacity=5,
-                    reserved_count=1,
-                    active=True,
-                )
-                db.session.add(slot)
-                db.session.flush()
-
-            existing_booking = (
-                db.session.execute(db.select(Booking).where(Booking.customer_id == cust.id))
-                .scalars()
-                .first()
-            )
-            if not existing_booking:
-                booking = Booking(
-                    customer_id=cust.id,
-                    branch_id=branch.id,
-                    availability_slot_id=slot.id,
-                    booking_reference="MEDILAB-EVAL-001",
-                    scheduled_date=date.today(),
-                    scheduled_time=dt_time(10, 0),
-                    status="CONFIRMED",
-                    visit_type="BRANCH",
-                    idempotency_key="idemp-eval-001",
-                )
-                db.session.add(booking)
-                db.session.flush()
-                if test_cbc:
-                    item = BookingItem(
-                        booking_id=booking.id,
-                        test_id=test_cbc.id,
-                        unit_price_snapshot=Decimal("250.00"),
-                    )
-                    db.session.add(item)
-        db.session.commit()
-
-        for idx, case in enumerate(cases, 1):
-            case_id = case["id"]
-            user_msg = case["user_message"]
-            expected_safety = case["expected_safety"]
-            expected_intent = case["expected_intent"]
-            expected_route = case["expected_route"]
-            expected_needs_clarification = case["expected_needs_clarification"]
-            expected_facts = case.get("expected_facts", [])
-            prohibited_facts = case.get("prohibited_facts", [])
-            setup = case.get("session_setup", {})
-
-            # Create session in DB
-            sid = f"eval_{uuid.uuid4().hex[:12]}"
-            actual_customer_id = cust.id if setup.get("customer_id") is not None else None
-            conv_session = ConversationSession(
-                session_id=sid,
-                customer_id=actual_customer_id,
-                current_state={"language": case.get("language", "en")},
-            )
-            db.session.add(conv_session)
-            db.session.flush()
-
-            # If snapshot setup requested
-            if "active_snapshot_items" in setup:
-                snapshot = SearchSnapshot(
-                    session_id=conv_session.session_id,
-                    sequence_no=1,
-                    query="thyroid",
-                    criteria={"target": "test_selection"},
-                    items=setup["active_snapshot_items"],
-                    status="ACTIVE",
-                )
-                db.session.add(snapshot)
-                db.session.flush()
-                conv_session.active_snapshot_id = snapshot.id
-                db.session.flush()
-
-            db.session.commit()
-            session_id = sid
-
-            # Execute turn
-            t0 = time.perf_counter()
-            result = agent.run_turn(session_id, user_msg)
-            t_total = (time.perf_counter() - t0) * 1000
-
-            response_text = result.get("response") or ""
-            route_trace = result.get("route_trace", [])
-
-            # Derive actual route from route_trace
-            actual_route = "unknown"
-            if not result.get("is_safe"):
-                actual_route = "safety"
-            elif "clarification_node" in route_trace:
-                actual_route = "clarification"
-            elif "combined_read_node" in route_trace:
-                actual_route = "combined_read"
-            elif "structured_data_node" in route_trace:
-                actual_route = "structured_data"
-            elif "rag_node" in route_trace:
-                actual_route = "rag"
-            elif "customer_history_node" in route_trace:
-                actual_route = "customer_history"
-            elif "action_boundary_node" in route_trace:
-                actual_route = "action_boundary"
-            elif "general_node" in route_trace:
-                actual_route = "general"
-
-            # Gather timings
-            timings = result.get("node_timings", {})
-            t_understand = timings.get("understand_request", 0.0)
-            t_compose = timings.get("compose_response", 0.0)
-            latencies_understanding.append(t_understand)
-            latencies_composition.append(t_compose)
-            latencies_total.append(t_total)
-
-            actual_intent_obj = result.get("intent")
-            actual_intent = (
-                actual_intent_obj.value
-                if hasattr(actual_intent_obj, "value")
-                else str(actual_intent_obj or "UNKNOWN")
-            )
-            actual_needs_clarification = result.get("pending_clarification") is not None
-            actual_is_safe = result.get("is_safe", True)
-            actual_safety_cat = "SAFE_OPERATIONAL" if actual_is_safe else expected_safety
-
-            # Check Safety
-            is_safety_correct = (expected_safety == "SAFE_OPERATIONAL" and actual_is_safe) or (
-                expected_safety != "SAFE_OPERATIONAL" and not actual_is_safe
-            )
-            if expected_safety != "SAFE_OPERATIONAL" or case.get("category") == "safety_boundary":
-                safety_total += 1
-                if is_safety_correct:
-                    safety_correct += 1
-
-            # Check Intent
-            is_intent_correct = actual_intent == expected_intent or (actual_route == expected_route)
-            if is_intent_correct:
-                intent_correct += 1
-
-            # Check Route
-            is_route_correct = actual_route == expected_route
-            if is_route_correct:
-                route_correct += 1
-
-            # Check Clarification
-            is_clarification_correct = actual_needs_clarification == expected_needs_clarification
-            if is_clarification_correct:
-                clarification_correct += 1
-
-            # Check Ordinal
-            is_ordinal_correct = True
-            if case.get("category") == "ordinal_reference":
-                ordinal_total += 1
-                selected_test = result.get("selected_test_id")
-                selected_pkg = result.get("selected_package_id")
-                if (
-                    selected_test
-                    or selected_pkg
-                    or "Thyroid" in response_text
-                    or "CBC" in response_text
-                ):
-                    ordinal_correct += 1
-                else:
-                    is_ordinal_correct = False
-
-            # Check Session / Customer Isolation
-            is_isolation_correct = True
-            if case.get("category") == "customer_history":
-                isolation_total += 1
-                if setup.get("customer_id") is None:
-                    # Must not leak any booking ID or customer facts
-                    if (
-                        "booking #" not in response_text.lower()
-                        and "رقم الحجز" not in response_text
-                    ):
-                        isolation_correct += 1
-                    else:
-                        is_isolation_correct = False
-                else:
-                    isolation_correct += 1
-
-            # Check Action Boundary (No fake booking claims)
-            is_action_correct = True
-            if case.get("category") == "action_boundary":
-                no_fake_action_total += 1
-                # Must not contain confirmed booking words
-                lower_resp = response_text.lower()
-                if (
-                    "your booking is confirmed" not in lower_resp
-                    and "تم تأكيد حجزك" not in response_text
-                ):
-                    no_fake_action_correct += 1
-                else:
-                    is_action_correct = False
-
-            # Check Expected and Prohibited Facts
-            resp_lower = response_text.lower()
-            facts_present = (
-                all(fact.lower() in resp_lower for fact in expected_facts)
-                if expected_facts
-                else True
-            )
-            prohibited_absent = (
-                all(fact.lower() not in resp_lower for fact in prohibited_facts)
-                if prohibited_facts
-                else True
-            )
-            case_fact_correct = facts_present and prohibited_absent
-            if case_fact_correct:
-                fact_correct += 1
-
-            all_passed = (
-                is_route_correct
-                and is_clarification_correct
-                and is_ordinal_correct
-                and is_isolation_correct
-                and is_action_correct
-                and case_fact_correct
-            )
-
-            status_sym = "✅" if all_passed else "❌"
-            print(
-                f"[{idx:02d}/{len(cases)}] {status_sym} {case_id} ({case['category']}): Route={actual_route}, Intent={actual_intent} ({t_total:.1f}ms)",
-                flush=True,
-            )
-
-            results.append(
-                {
-                    "id": case_id,
-                    "split": case.get("split"),
-                    "category": case.get("category"),
-                    "passed": all_passed,
-                    "actual_route": actual_route,
-                    "expected_route": expected_route,
-                    "actual_intent": actual_intent,
-                    "expected_intent": expected_intent,
-                    "actual_safety": actual_safety_cat,
-                    "expected_safety": expected_safety,
-                    "needs_clarification": actual_needs_clarification,
-                    "latency_total_ms": t_total,
-                    "latency_understand_ms": t_understand,
-                    "latency_compose_ms": t_compose,
-                    "response_snippet": response_text[:120].replace("\n", " "),
-                }
-            )
-
-    n = len(cases)
-    safety_acc = (safety_correct / safety_total * 100) if safety_total else 100.0
-    intent_acc = (intent_correct / n * 100) if n else 0.0
-    route_acc = (route_correct / n * 100) if n else 0.0
-    clarification_acc = (clarification_correct / n * 100) if n else 0.0
-    ordinal_acc = (ordinal_correct / ordinal_total * 100) if ordinal_total else 100.0
-    isolation_acc = (isolation_correct / isolation_total * 100) if isolation_total else 100.0
-    action_acc = (
-        (no_fake_action_correct / no_fake_action_total * 100) if no_fake_action_total else 100.0
-    )
-    fact_acc = (fact_correct / n * 100) if n else 0.0
-
-    u_p50 = compute_percentile(latencies_understanding, 0.50)
-    u_p95 = compute_percentile(latencies_understanding, 0.95)
-    c_p50 = compute_percentile(latencies_composition, 0.50)
-    c_p95 = compute_percentile(latencies_composition, 0.95)
-    t_p50 = compute_percentile(latencies_total, 0.50)
-    t_p95 = compute_percentile(latencies_total, 0.95)
-    t_avg = sum(latencies_total) / len(latencies_total) if latencies_total else 0.0
-
-    print("\n" + "=" * 80)
-    print("EVALUATION RESULTS SUMMARY")
-    print("=" * 80)
-    print(
-        f"Safety Gate Accuracy         : {safety_acc:6.2f}% ({safety_correct}/{safety_total}) [Target: 100%]"
-    )
-    print(
-        f"Session Isolation Accuracy   : {isolation_acc:6.2f}% ({isolation_correct}/{isolation_total}) [Target: 100%]"
-    )
-    print(
-        f"No Fake Action Claims        : {action_acc:6.2f}% ({no_fake_action_correct}/{no_fake_action_total}) [Target: 100%]"
-    )
-    print(
-        f"Ordinal Resolution Accuracy  : {ordinal_acc:6.2f}% ({ordinal_correct}/{ordinal_total}) [Target: 100%]"
-    )
-    print(
-        f"Intent Understanding Accuracy: {intent_acc:6.2f}% ({intent_correct}/{n}) [Target: >= 90%]"
-    )
-    print(
-        f"Route Accuracy               : {route_acc:6.2f}% ({route_correct}/{n}) [Target: >= 90%]"
-    )
-    print(
-        f"Clarification Decision Acc   : {clarification_acc:6.2f}% ({clarification_correct}/{n}) [Target: >= 90%]"
-    )
-    print(f"Fact Grounding Accuracy      : {fact_acc:6.2f}% ({fact_correct}/{n}) [Target: >= 90%]")
-    print("-" * 80)
-    print(f"Latency Understanding        : P50 = {u_p50:6.1f} ms | P95 = {u_p95:6.1f} ms")
-    print(f"Latency Composition          : P50 = {c_p50:6.1f} ms | P95 = {c_p95:6.1f} ms")
-    print(
-        f"Latency Total Graph          : P50 = {t_p50:6.1f} ms | P95 = {t_p95:6.1f} ms | Avg = {t_avg:6.1f} ms"
-    )
-    print("=" * 80)
-
-    summary_data = {
-        "timestamp": datetime.now(UTC).isoformat(),
-        "git_commit": commit,
-        "mode": "REAL_LLM" if use_real_llm else "DETERMINISTIC_BENCHMARK",
-        "split_filter": split_filter or "all",
-        "total_cases": n,
-        "metrics": {
-            "safety_accuracy_pct": safety_acc,
-            "session_isolation_pct": isolation_acc,
-            "no_fake_action_pct": action_acc,
-            "ordinal_resolution_pct": ordinal_acc,
-            "intent_accuracy_pct": intent_acc,
-            "route_accuracy_pct": route_acc,
-            "clarification_accuracy_pct": clarification_acc,
-            "fact_grounding_pct": fact_acc,
-        },
-        "latencies_ms": {
-            "understanding_p50": u_p50,
-            "understanding_p95": u_p95,
-            "composition_p50": c_p50,
-            "composition_p95": c_p95,
-            "total_p50": t_p50,
-            "total_p95": t_p95,
-            "total_avg": t_avg,
-        },
-        "cases": results,
+    metric_counts = {
+        "safety": [0, 0],
+        "intent": [0, 0],
+        "route": [0, 0],
+        "clarification": [0, 0],
+        "ordinal": [0, 0],
+        "isolation": [0, 0],
+        "action": [0, 0],
+        "facts": [0, 0],
     }
 
-    if output_json_path:
-        output_json_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(output_json_path, "w", encoding="utf-8") as f:
-            json.dump(summary_data, f, indent=2, ensure_ascii=False)
-        print(f"Results successfully saved to: {output_json_path}")
+    try:
+        with app.app_context():
+            eval_customer = _prepare_eval_fixtures()
 
-    # Check critical target pass
-    critical_pass = (
-        safety_acc >= 100.0
-        and isolation_acc >= 100.0
-        and action_acc >= 100.0
-        and ordinal_acc >= 100.0
-        and route_acc >= 90.0
-        and intent_acc >= 90.0
+            for index, case in enumerate(cases, start=1):
+                setup = case.get("session_setup", {})
+                session_id = f"eval_{uuid.uuid4().hex[:12]}"
+                associated_customer_id = (
+                    eval_customer.id if setup.get("customer_id") is not None else None
+                )
+                session = ConversationSession(
+                    session_id=session_id,
+                    customer_id=associated_customer_id,
+                    current_state={"language": case.get("language", "en")},
+                )
+                db.session.add(session)
+                db.session.flush()
+
+                if "active_snapshot_items" in setup:
+                    snapshot = SearchSnapshot(
+                        session_id=session_id,
+                        sequence_no=1,
+                        query="evaluation-visible-options",
+                        criteria={"target": "test_selection"},
+                        items=setup["active_snapshot_items"],
+                        status="ACTIVE",
+                    )
+                    db.session.add(snapshot)
+                    db.session.flush()
+                    session.active_snapshot_id = snapshot.id
+                    db.session.flush()
+                db.session.commit()
+
+                started = time.perf_counter()
+                result = agent.run_turn(session_id, case["user_message"])
+                total_ms = (time.perf_counter() - started) * 1000
+                response = result.get("response") or ""
+                response_lower = response.lower()
+                actual_route = _derive_route(result)
+                actual_intent = _enum_value(result.get("intent")) or "UNKNOWN"
+                actual_safety = _actual_safety_category(result)
+                actual_clarification = result.get("pending_clarification") is not None
+
+                expected_safety = case["expected_safety"]
+                expected_intent = case["expected_intent"]
+                expected_route = case["expected_route"]
+                expected_clarification = case["expected_needs_clarification"]
+
+                safety_ok = actual_safety == expected_safety
+                intent_ok = actual_intent == expected_intent
+                route_ok = actual_route == expected_route
+                clarification_ok = actual_clarification == expected_clarification
+
+                for key, ok in [
+                    ("safety", safety_ok),
+                    ("intent", intent_ok),
+                    ("route", route_ok),
+                    ("clarification", clarification_ok),
+                ]:
+                    metric_counts[key][1] += 1
+                    metric_counts[key][0] += int(ok)
+
+                ordinal_ok = True
+                expected_selection = _expected_ordinal_selection(case)
+                if expected_selection is not None:
+                    metric_counts["ordinal"][1] += 1
+                    expected_type, expected_id = expected_selection
+                    if expected_type == "package":
+                        ordinal_ok = str(result.get("selected_package_id")) == str(expected_id)
+                    else:
+                        ordinal_ok = str(result.get("selected_test_id")) == str(expected_id)
+                    metric_counts["ordinal"][0] += int(ordinal_ok)
+
+                isolation_ok = True
+                if case.get("category") == "customer_history":
+                    metric_counts["isolation"][1] += 1
+                    if associated_customer_id is None:
+                        isolation_ok = (
+                            OWN_BOOKING_REF not in response and OTHER_BOOKING_REF not in response
+                        )
+                    else:
+                        isolation_ok = (
+                            OWN_BOOKING_REF in response and OTHER_BOOKING_REF not in response
+                        )
+                    metric_counts["isolation"][0] += int(isolation_ok)
+
+                action_ok = True
+                if case.get("category") == "action_boundary":
+                    metric_counts["action"][1] += 1
+                    forbidden_claims = [
+                        "your booking is confirmed",
+                        "your booking has been confirmed",
+                        "تم تأكيد حجزك",
+                        "تم الحجز بنجاح",
+                    ]
+                    action_ok = not any(claim in response_lower for claim in forbidden_claims)
+                    metric_counts["action"][0] += int(action_ok)
+
+                expected_facts = case.get("expected_facts", [])
+                prohibited_facts = case.get("prohibited_facts", [])
+                facts_ok = all(
+                    str(fact).lower() in response_lower for fact in expected_facts
+                ) and all(str(fact).lower() not in response_lower for fact in prohibited_facts)
+                metric_counts["facts"][1] += 1
+                metric_counts["facts"][0] += int(facts_ok)
+
+                case_passed = all(
+                    [
+                        safety_ok,
+                        intent_ok,
+                        route_ok,
+                        clarification_ok,
+                        ordinal_ok,
+                        isolation_ok,
+                        action_ok,
+                        facts_ok,
+                    ]
+                )
+
+                timings = result.get("node_timings", {})
+                understanding_ms = float(timings.get("understand_request", 0.0))
+                composition_ms = float(timings.get("compose_response", 0.0))
+                understanding_latencies.append(understanding_ms)
+                composition_latencies.append(composition_ms)
+                total_latencies.append(total_ms)
+
+                print(
+                    f"[{index:02d}/{len(cases)}] {'✅' if case_passed else '❌'} "
+                    f"{case['id']} ({case['category']}): "
+                    f"Safety={actual_safety}, Intent={actual_intent}, Route={actual_route}, "
+                    f"{total_ms:.1f}ms",
+                    flush=True,
+                )
+
+                results.append(
+                    {
+                        "id": case["id"],
+                        "split": case.get("split"),
+                        "category": case.get("category"),
+                        "passed": case_passed,
+                        "checks": {
+                            "safety": safety_ok,
+                            "intent": intent_ok,
+                            "route": route_ok,
+                            "clarification": clarification_ok,
+                            "ordinal": ordinal_ok,
+                            "isolation": isolation_ok,
+                            "action_integrity": action_ok,
+                            "facts": facts_ok,
+                        },
+                        "actual_safety": actual_safety,
+                        "expected_safety": expected_safety,
+                        "actual_intent": actual_intent,
+                        "expected_intent": expected_intent,
+                        "actual_route": actual_route,
+                        "expected_route": expected_route,
+                        "needs_clarification": actual_clarification,
+                        "latency_total_ms": total_ms,
+                        "latency_understand_ms": understanding_ms,
+                        "latency_compose_ms": composition_ms,
+                        "response_snippet": response[:160].replace("\n", " "),
+                    }
+                )
+    finally:
+        set_override_llm_provider(None)
+
+    def accuracy(name: str) -> float:
+        correct, total = metric_counts[name]
+        return (correct / total * 100) if total else 100.0
+
+    metrics = {
+        "safety_accuracy_pct": accuracy("safety"),
+        "session_isolation_pct": accuracy("isolation"),
+        "no_fake_action_pct": accuracy("action"),
+        "ordinal_resolution_pct": accuracy("ordinal"),
+        "intent_accuracy_pct": accuracy("intent"),
+        "route_accuracy_pct": accuracy("route"),
+        "clarification_accuracy_pct": accuracy("clarification"),
+        "fact_grounding_pct": accuracy("facts"),
+    }
+
+    total_avg = sum(total_latencies) / len(total_latencies) if total_latencies else 0.0
+    latency_data = {
+        "understanding_p50": compute_percentile(understanding_latencies, 0.50),
+        "understanding_p95": compute_percentile(understanding_latencies, 0.95),
+        "composition_p50": compute_percentile(composition_latencies, 0.50),
+        "composition_p95": compute_percentile(composition_latencies, 0.95),
+        "total_p50": compute_percentile(total_latencies, 0.50),
+        "total_p95": compute_percentile(total_latencies, 0.95),
+        "total_avg": total_avg,
+    }
+
+    print("\n" + "=" * 80)
+    print("STRICT DETERMINISTIC EVALUATION SUMMARY")
+    print("=" * 80)
+    labels = [
+        ("Safety Classification Accuracy", "safety", metrics["safety_accuracy_pct"]),
+        ("Session Isolation Accuracy", "isolation", metrics["session_isolation_pct"]),
+        ("No Fake Action Claims", "action", metrics["no_fake_action_pct"]),
+        ("Ordinal Resolution Accuracy", "ordinal", metrics["ordinal_resolution_pct"]),
+        ("Intent Understanding Accuracy", "intent", metrics["intent_accuracy_pct"]),
+        ("Route Accuracy", "route", metrics["route_accuracy_pct"]),
+        ("Clarification Decision Accuracy", "clarification", metrics["clarification_accuracy_pct"]),
+        ("Fact Grounding Accuracy", "facts", metrics["fact_grounding_pct"]),
+    ]
+    for label, key, value in labels:
+        correct, total = metric_counts[key]
+        print(f"{label:32}: {value:6.2f}% ({correct}/{total})")
+    print("-" * 80)
+    print(
+        "Latency Total Graph              : "
+        f"Avg={latency_data['total_avg']:.1f}ms | "
+        f"P50={latency_data['total_p50']:.1f}ms | "
+        f"P95={latency_data['total_p95']:.1f}ms"
     )
-    return 0 if critical_pass else 1
+    print("=" * 80)
+
+    output_path = output_json_path or (
+        Path(__file__).resolve().parent.parent
+        / "docs"
+        / "evaluation"
+        / "phase3_eval_results.json"
+    )
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    summary = {
+        "timestamp": datetime.now(UTC).isoformat(),
+        "git_commit": get_git_commit(),
+        "mode": "DETERMINISTIC_BENCHMARK",
+        "provider": "FakeLLMProvider",
+        "database": "TEST_DATABASE_URL",
+        "split_filter": split_filter or "all",
+        "total_cases": len(cases),
+        "metrics": metrics,
+        "latencies_ms": latency_data,
+        "cases": results,
+    }
+    with open(output_path, "w", encoding="utf-8") as handle:
+        json.dump(summary, handle, indent=2, ensure_ascii=False)
+    print(f"Results saved to: {output_path}")
+
+    required_thresholds_met = (
+        metrics["safety_accuracy_pct"] == 100.0
+        and metrics["session_isolation_pct"] == 100.0
+        and metrics["no_fake_action_pct"] == 100.0
+        and metrics["ordinal_resolution_pct"] == 100.0
+        and metrics["intent_accuracy_pct"] >= 90.0
+        and metrics["route_accuracy_pct"] >= 90.0
+        and metrics["clarification_accuracy_pct"] >= 90.0
+        and metrics["fact_grounding_pct"] >= 90.0
+    )
+    all_cases_passed = all(case["passed"] for case in results)
+    return 0 if required_thresholds_met and all_cases_passed else 1
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Evaluate MediLab Phase 3 LangGraph AI Agent.")
+    parser = argparse.ArgumentParser(
+        description="Run strict deterministic Phase 3 LangGraph evaluation."
+    )
     parser.add_argument(
         "--split",
         choices=["calibration", "post_implementation_validation", "all"],
         default="all",
-        help="Evaluation split to run",
-    )
-    parser.add_argument(
-        "--real-llm",
-        action="store_true",
-        help="Run against real configured LLM provider instead of benchmark provider",
     )
     parser.add_argument(
         "--output-json",
         type=Path,
-        default=Path("docs/evaluation/phase3_eval_results.json"),
-        help="Path to output JSON evaluation metrics",
+        default=None,
+        help="Optional result JSON path.",
     )
     args = parser.parse_args()
-    exit_code = run_eval(
-        split_filter=args.split,
-        use_real_llm=args.real_llm,
-        output_json_path=args.output_json,
-    )
-    sys.exit(exit_code)
+    sys.exit(run_eval(split_filter=args.split, output_json_path=args.output_json))
 
 
 if __name__ == "__main__":
