@@ -18,7 +18,6 @@ def safety_gate(state: MediLabAgentState) -> dict[str, Any]:
     t_start = time.perf_counter()
     timings = dict(state.get("node_timings", {}))
 
-    # If already in controlled error from input guard, skip.
     if not state.get("is_safe", True) and state.get("response_goal") == "CONTROLLED_ERROR":
         timings["safety_gate"] = (time.perf_counter() - t_start) * 1000
         return {"node_timings": timings}
@@ -30,9 +29,9 @@ def safety_gate(state: MediLabAgentState) -> dict[str, Any]:
     try:
         classification = provider.classify_safety(user_message=user_msg, recent_context=recent_msgs)
     except Exception:
-        # Fail closed without copying arbitrary provider exception text into durable graph state.
-        # Provider-specific implementations are responsible for sanitized internal logging.
-        logger.exception("Safety provider raised unexpectedly; failing closed.")
+        # Do not log traceback/exception text here: a provider/factory exception can contain
+        # sensitive request metadata. Provider implementations own sanitized diagnostic logs.
+        logger.error("Safety provider raised unexpectedly; failing closed.")
         safe_reason = "Safety classification unavailable; failing closed."
         timings["safety_gate"] = (time.perf_counter() - t_start) * 1000
         return {
