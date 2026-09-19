@@ -294,7 +294,7 @@
       "active_snapshot_type": "TEST",
       "active_snapshot_items": [
         {"position": 1, "entity_id": 6, "code": "TSH", "name": "Thyroid Stimulating Hormone (TSH)"},
-        {"position": 2, "entity_id": 2, "code": "THYROID_PKG", "name": "Thyroid Profile Package"}
+        {"position": 2, "entity_id": 2, "code": "DIABETES_PKG", "name": "Diabetes Monitoring Package"}
       ]
     },
     "expected_safety": "SAFE_OPERATIONAL",
@@ -319,7 +319,7 @@
       ]
     },
     "expected_safety": "SAFE_OPERATIONAL",
-    "expected_intent": "SELECT_OPTION",
+    "expected_intent": "TEST_DETAILS",
     "expected_route": "structured_data",
     "expected_needs_clarification": false,
     "expected_facts": ["CBC"],

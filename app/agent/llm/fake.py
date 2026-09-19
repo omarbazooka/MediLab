@@ -233,18 +233,6 @@ class FakeLLMProvider:
             )
 
         # Action boundary intents
-        if any(w in lower for w in ["book", "احجز", "حجز"]):
-            if any(w in lower for w in ["home", "منزلي", "البيت"]):
-                return RequestPlan(
-                    primary_intent=AgentIntent.BOOK_HOME_VISIT,
-                    action_intent="BOOK_HOME_VISIT",
-                    language=lang,
-                )
-            return RequestPlan(
-                primary_intent=AgentIntent.BOOK_BRANCH_VISIT,
-                action_intent="BOOK_BRANCH_VISIT",
-                language=lang,
-            )
         if any(w in lower for w in ["cancel", "إلغاء", "الغي"]):
             return RequestPlan(
                 primary_intent=AgentIntent.CANCEL_BOOKING,
@@ -255,6 +243,18 @@ class FakeLLMProvider:
             return RequestPlan(
                 primary_intent=AgentIntent.CHECK_BOOKING,
                 action_intent="CHECK_BOOKING",
+                language=lang,
+            )
+        if any(w in lower for w in ["book", "احجز", "حجز"]):
+            if any(w in lower for w in ["home", "منزلي", "البيت"]):
+                return RequestPlan(
+                    primary_intent=AgentIntent.BOOK_HOME_VISIT,
+                    action_intent="BOOK_HOME_VISIT",
+                    language=lang,
+                )
+            return RequestPlan(
+                primary_intent=AgentIntent.BOOK_BRANCH_VISIT,
+                action_intent="BOOK_BRANCH_VISIT",
                 language=lang,
             )
 
@@ -432,35 +432,28 @@ class FakeLLMProvider:
 
         if has_catalog_aspect or entity:
             sub_intent = AgentIntent.TEST_DETAILS
-            aspect_count = sum(
-                [
-                    any(w in lower for w in ["turnaround", "ready", "تظهر", "وقت"]),
-                    any(w in lower for w in ["sample", "عينة"]),
-                    any(w in lower for w in ["price", "cost", "بكام", "سعر", "تمن"]),
-                    any(
-                        w in lower
-                        for w in [
-                            "what does",
-                            "what is",
-                            "عبارة عن إيه",
-                            "ما هو",
-                            "measure",
-                            "بيقيس",
-                        ]
-                    ),
-                ]
+            has_turnaround = any(w in lower for w in ["turnaround", "ready", "تظهر", "وقت"])
+            has_sample = any(w in lower for w in ["sample", "عينة"])
+            has_price = any(
+                w in lower for w in ["price", "cost", "how much", "بكام", "سعر", "تمن", "كام"]
             )
+            has_def_specific = any(
+                w in lower for w in ["what does", "measure", "بيقيس", "عبارة عن إيه"]
+            )
+            has_def_generic = ("what is" in lower or "ما هو" in lower) and not (
+                has_turnaround or has_sample or has_price
+            )
+            has_def = has_def_specific or has_def_generic
+
+            aspect_count = sum([has_turnaround, has_sample, has_price, has_def])
             if aspect_count <= 1:
-                if any(w in lower for w in ["turnaround", "ready", "تظهر", "وقت"]):
+                if has_turnaround:
                     sub_intent = AgentIntent.RESULT_TURNAROUND
-                elif any(w in lower for w in ["sample", "عينة"]):
+                elif has_sample:
                     sub_intent = AgentIntent.SAMPLE_TYPE
-                elif any(w in lower for w in ["price", "cost", "بكام", "سعر", "تمن"]):
+                elif has_price:
                     sub_intent = AgentIntent.TEST_PRICE
-                elif any(
-                    w in lower
-                    for w in ["what does", "what is", "عبارة عن إيه", "ما هو", "measure", "بيقيس"]
-                ):
+                elif has_def:
                     sub_intent = AgentIntent.TEST_DEFINITION
 
             return RequestPlan(
