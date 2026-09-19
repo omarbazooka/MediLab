@@ -24,7 +24,21 @@ def safety_gate(state: MediLabAgentState) -> dict[str, Any]:
     recent_msgs = state.get("recent_messages", [])
 
     provider = get_llm_provider()
-    classification = provider.classify_safety(user_message=user_msg, recent_context=recent_msgs)
+    try:
+        classification = provider.classify_safety(user_message=user_msg, recent_context=recent_msgs)
+    except Exception as exc:
+        timings["safety_gate"] = (time.perf_counter() - t_start) * 1000
+        return {
+            "safety_classification": {
+                "category": SafetyCategory.OTHER_CLINICAL_UNSAFE.value,
+                "confidence": 0.0,
+                "reason": f"Safety classification exception ({exc}); failing closed.",
+            },
+            "is_safe": False,
+            "safety_reason": f"Safety classification exception ({exc}); failing closed.",
+            "response_goal": "SAFE_BOUNDARY",
+            "node_timings": timings,
+        }
 
     # Deterministic secondary fail-safe for critical medical terms
     is_safe = classification.is_safe

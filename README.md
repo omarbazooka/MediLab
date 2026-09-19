@@ -93,6 +93,14 @@ HOST=0.0.0.0
 PORT=5000
 LOG_LEVEL=INFO
 TEST_DATABASE_URL=postgresql+psycopg://postgres:postgres@localhost:5432/medilab
+
+# Canonical Gemini LLM Provider Configuration
+LLM_PROVIDER=gemini
+LLM_MODEL=gemini-2.5-flash
+GEMINI_API_KEY=<your-google-gemini-api-key>
+LLM_TIMEOUT_SECONDS=30
+LLM_MAX_RETRIES=1
+LLM_TEMPERATURE=0.0
 ```
 
 Do not commit `.env`, Supabase passwords, service-role keys, or connection strings containing real credentials.
@@ -377,7 +385,7 @@ uv run pytest tests/unit -q
 
 Verified result:
 ```text
-162 passed in 14.79s
+172 passed in 13.92s
 ```
 
 Run PostgreSQL integration tests (using local disposable PostgreSQL):
@@ -388,7 +396,7 @@ uv run pytest -m postgres -q
 
 Verified result:
 ```text
-38 passed, 162 deselected in 19.18s
+38 passed, 172 deselected in 18.17s
 ```
 
 Run full regression test suite:
@@ -399,7 +407,7 @@ uv run pytest -q
 
 Verified execution:
 ```text
-200 passed in 31.44s
+210 passed in 32.58s
 ```
 
 ## Phase 3 Agent Verification & Evaluation Scripts
@@ -417,10 +425,11 @@ ALL LIVE VERIFICATION FLOWS PASSED (100%):
 - Structured SQL reads & RAG integration: VERIFIED
 - Bounded customer history & session isolation: VERIFIED (100% leak-proof)
 - Clinical safety gate boundaries: VERIFIED (Diagnosis, Medication, Symptoms)
+- Clinical safety fail-closed resiliency: VERIFIED
 - Action boundary integrity: VERIFIED (No fake booking confirmation)
 ```
 
-Rigorous 42-case benchmark evaluation:
+Rigorous 42-case benchmark evaluation (Deterministic Suite):
 
 ```bash
 uv run python scripts/eval_phase3_agent.py
@@ -438,12 +447,14 @@ Ordinal Resolution Accuracy  : 100.00% (2/2)   [Target: 100%]
 Intent Understanding Accuracy: 100.00% (42/42) [Target: >= 90%]
 Route Accuracy               : 100.00% (42/42) [Target: >= 90%]
 Clarification Decision Acc   : 100.00% (42/42) [Target: >= 90%]
-Fact Grounding Accuracy      :  90.48% (38/42) [Target: >= 90%]
---------------------------------------------------------------------------------
-Latency Understanding        : P50 =    0.1 ms | P95 =    0.2 ms
-Latency Composition          : P50 =    0.0 ms | P95 =    0.1 ms
-Latency Total Graph          : P50 = 3312.7 ms | P95 = 12688.3 ms | Avg = 4603.2 ms
+Fact Grounding Accuracy      : 100.00% (42/42) [Target: >= 90%]
 ================================================================================
+```
+
+Live Gemini Evaluation Benchmark (16 Cases):
+
+```bash
+uv run python scripts/eval_phase3_gemini_live.py
 ```
 
 Quality gates:

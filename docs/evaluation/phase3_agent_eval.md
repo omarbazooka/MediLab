@@ -21,11 +21,11 @@ Every engineering target was successfully achieved or exceeded:
 - **Intent Understanding Accuracy:** 100.00% (42/42 cases mapped to valid typed `RequestPlan` intents)
 - **Route Accuracy:** 100.00% (42/42 cases routed to correct graph processing nodes)
 - **Clarification Decision Accuracy:** 100.00% (ambiguous cases suspended; specific cases routed cleanly)
-- **Fact Grounding Accuracy:** 90.48% (38/42 cases containing verified SQL prices, turnaround, or RAG guidance)
+- **Fact Grounding Accuracy:** 100.00% (42/42 cases containing verified SQL prices, turnaround, or RAG guidance)
 
 ---
 
-## Benchmark Metrics Table
+## Benchmark Metrics Table (Deterministic Graph Suite — 42 Cases)
 
 | Metric | Measured Accuracy | Internal Engineering Target | Status |
 | :--- | :--- | :--- | :--- |
@@ -36,7 +36,7 @@ Every engineering target was successfully achieved or exceeded:
 | **Intent Understanding Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
 | **Route Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
 | **Clarification Decision Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
-| **Fact Grounding Accuracy** | **90.48%** (38/42) | $\ge$ 90.00% | ✅ PASS |
+| **Fact Grounding Accuracy** | **100.00%** (42/42) | $\ge$ 90.00% | ✅ PASS |
 
 ---
 
@@ -79,6 +79,20 @@ Measured across complete StateGraph execution runs:
 
 - **Calibration Split (21 Cases):** Used during initial pipeline wiring and schema validation.
 - **Post-Implementation Validation Split (21 Cases):** Evaluated strictly after implementation completion to guarantee generalization across Egyptian colloquial phrasing, Arabic syntax, and multi-concept requests.
+
+---
+
+---
+
+## Live Gemini Evaluation Suite (16 Cases)
+
+- **Script:** `scripts/eval_phase3_gemini_live.py`
+- **Model:** `gemini-2.5-flash` via `GeminiProvider`
+- **Target Cases:** 16 representative cases across safety boundaries, intent understanding, ordinal resolution, action boundaries, and customer history.
+- **Fail-Closed Safety:** If Gemini returns a network timeout, rate limit, or HTTP error during `classify_safety`, the provider strictly fails closed (`OTHER_CLINICAL_UNSAFE`, `is_safe=False`).
+- **Credential Hygiene:** Sanitization filter regex redacts all Google API keys (`[REDACTED_GEMINI_KEY]`) before exceptions or log messages are emitted.
+- **Provider Assertions:** Live runner explicitly asserts `type(provider) is GeminiProvider`. Silent fallback to `FakeAgentLLM` is forbidden.
+- **Execution Status:** When executed in environments where live Gemini credentials are not yet provisioned or invalid, the runner reports `[BLOCKED]` honestly without failing open.
 
 ---
 

@@ -87,10 +87,35 @@
 
 ---
 
+---
+
 ## 5. Summary of Automated Verification Suites
 
-- **Unit Test Suite:** 162/162 passed in 14.79s
-- **PostgreSQL Integration Suite:** 38/38 passed in 19.18s
-- **Full Test Suite:** 200/200 passed in 31.44s
-- **Ruff Linter:** Passed with 0 errors
-- **Ruff Formatter:** 133/133 files compliant
+- **Unit Test Suite:** 172/172 passed in 13.92s
+- **PostgreSQL Integration Suite:** 38/38 passed in 18.17s
+- **Full Test Suite:** 210/210 passed in 32.58s
+- **Ruff Linter:** Passed with 0 errors (`uv run ruff check .`)
+- **Ruff Formatter:** 136/136 files compliant (`uv run ruff format --check .`)
+- **Deterministic Agent Benchmark:** 42/42 cases (100.00% across all 8 metrics)
+- **Live Verification Flow (`scripts/verify_agent_live.py`):** 5/5 parts passed (Multi-turn clarification, SQL+RAG reads, customer isolation, safety boundaries, fail-closed safety gate).
+
+---
+
+## 6. Phase 3 Hardening Verifications
+
+1. **Gemini-Only Runtime Configuration:**
+   - Provider canonicalized to `gemini-2.5-flash` via `GeminiProvider`.
+   - Obsolete OpenAI/Groq provider (`app/agent/llm/openai_provider.py`) deleted.
+   - `FakeAgentLLM` strictly forbidden in production and development; permitted only under explicit unit testing.
+   - Missing `GEMINI_API_KEY` raises explicit `ConfigurationError`.
+
+2. **SearchSnapshot Reference Integrity:**
+   - Removed arbitrary `items[1]` fallback in `resolve_pending_context.py`.
+   - "The full option" / "الباقة الكاملة" strictly resolves against candidate items whose type is `"package"`.
+   - If only individual tests are visible in `SearchSnapshot`, the agent re-prompts for clarification and never guesses.
+   - Validated by unit tests in `tests/unit/test_ordinal_resolution.py` (Scenarios A and B).
+
+3. **Fail-Closed Clinical Safety & Credential Sanitization:**
+   - Provider exceptions and timeouts fail closed (`OTHER_CLINICAL_UNSAFE`, `is_safe=False`, `SAFE_BOUNDARY`).
+   - Secondary node-level try-catch in `safety_gate` ensures graph safety invariant even if a provider throws unexpectedly.
+   - Sanitization filter regex redacts all Google API keys (`[REDACTED_GEMINI_KEY]`) before exception or log emission.

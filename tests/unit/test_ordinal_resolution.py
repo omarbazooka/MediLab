@@ -86,3 +86,70 @@ def test_ordinal_resolution_without_snapshot_does_not_guess(app: Flask) -> None:
 
         assert update["selected_test_id"] is None
         assert update["selected_package_id"] is None
+
+
+def test_the_full_option_cannot_escape_snapshot_when_only_tests_visible(app: Flask) -> None:
+    """Scenario A: If visible snapshot contains only individual tests, 'full option' must NOT arbitrarily pick a hidden package."""
+    with app.app_context():
+        state = create_initial_state("sess-ord-5", "I mean the full option")
+        state["active_search_snapshot"] = {
+            "id": 15,
+            "items": [
+                {"type": "test", "id": 101, "code": "TSH", "name": "TSH"},
+                {"type": "test", "id": 102, "code": "FT3", "name": "Free T3"},
+                {"type": "test", "id": 103, "code": "FT4", "name": "Free T4"},
+            ],
+        }
+        state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
+        state["needs_clarification"] = True
+
+        update = resolve_pending_context(state)
+
+        # Must NOT magically select a hidden package or arbitrarily pick test 2
+        assert update["selected_package_id"] is None
+        assert update["selected_test_id"] is None
+        assert update["needs_clarification"] is True
+        assert update["pending_clarification"] is not None
+
+
+def test_the_full_option_arabic_with_visible_package(app: Flask) -> None:
+    """Scenario B: In Arabic, 'الباقة الكاملة' resolves to the package item because it was visible."""
+    with app.app_context():
+        state = create_initial_state("sess-ord-6", "أقصد الباقة الكاملة")
+        state["active_search_snapshot"] = {
+            "id": 16,
+            "items": [
+                {"type": "test", "id": 1, "code": "TSH", "name": "TSH"},
+                {"type": "package", "id": 88, "name": "باقة الفحص الشامل"},
+            ],
+        }
+        state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
+        state["needs_clarification"] = True
+
+        update = resolve_pending_context(state)
+
+        assert update["selected_package_id"] == 88
+        assert update["selected_test_id"] is None
+        assert update["needs_clarification"] is False
+        assert update["pending_clarification"] is None
+
+
+def test_ordinal_out_of_bounds_does_not_select(app: Flask) -> None:
+    """Selecting 4th option when only 2 are visible must not select anything."""
+    with app.app_context():
+        state = create_initial_state("sess-ord-7", "الرابع")
+        state["active_search_snapshot"] = {
+            "id": 17,
+            "items": [
+                {"type": "test", "id": 1, "code": "TSH", "name": "TSH"},
+                {"type": "test", "id": 2, "code": "CBC", "name": "CBC"},
+            ],
+        }
+        state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
+        state["needs_clarification"] = True
+
+        update = resolve_pending_context(state)
+
+        assert update["selected_test_id"] is None
+        assert update["selected_package_id"] is None
+        assert update["needs_clarification"] is True

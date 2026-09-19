@@ -144,6 +144,7 @@ class MediLabAgent:
             "pending_clarification": final_state.get("pending_clarification"),
             "selected_test_id": final_state.get("selected_test_id"),
             "selected_package_id": final_state.get("selected_package_id"),
+            "active_search_snapshot": final_state.get("active_search_snapshot"),
             "total_latency_ms": final_state.get("total_latency_ms", 0.0),
             "node_timings": final_state.get("node_timings", {}),
             "validation": final_state.get("validation_result"),

@@ -35,12 +35,15 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
     has_action_success_claim = any(
         phrase in lower_draft
         for phrase in [
-            "booking is confirmed",
-            "booking confirmed",
-            "appointment is confirmed",
+            "your booking is confirmed",
+            "your booking has been confirmed",
+            "your appointment is confirmed",
+            "your appointment has been confirmed",
+            "we have booked your",
             "تم تأكيد حجزك",
             "تم الحجز بنجاح",
             "حجزك مؤكد",
+            "لقد تم حجز موعدك",
         ]
     )
     if has_action_success_claim and not state.get("action_result"):

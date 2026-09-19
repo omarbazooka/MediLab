@@ -23,6 +23,7 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
     # Build context for query rewriting
     context: dict[str, Any] = {}
     selected_test_id = state.get("selected_test_id")
+    selected_package_id = state.get("selected_package_id")
     if selected_test_id:
         test_obj = test_repo.get_by_id(selected_test_id)
         if test_obj:
@@ -30,6 +31,15 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
             context["selected_test_name"] = test_obj.name
             context["current_subject"] = test_obj.name
             context["selected_code"] = test_obj.code
+    elif selected_package_id:
+        from app.repositories.package_repository import PackageRepository
+
+        pkg_repo = PackageRepository()
+        pkg_obj = pkg_repo.get_by_id(selected_package_id)
+        if pkg_obj:
+            context["selected_package"] = pkg_obj.name
+            context["selected_package_name"] = pkg_obj.name
+            context["current_subject"] = pkg_obj.name
     elif state.get("entities", {}).get("test_query"):
         q_entity = str(state["entities"]["test_query"])
         context["selected_test"] = q_entity

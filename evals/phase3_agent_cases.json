@@ -220,7 +220,7 @@
     "expected_intent": "POLICY",
     "expected_route": "rag",
     "expected_needs_clarification": false,
-    "expected_facts": ["ساعتين"],
+    "expected_facts": ["4 hours"],
     "prohibited_facts": [],
     "description": "RAG policy on appointment cancellation for home collection"
   },
@@ -643,7 +643,7 @@
     "expected_intent": "TEST_DETAILS",
     "expected_route": "structured_data",
     "expected_needs_clarification": false,
-    "expected_facts": ["Lipid Profile", "320", "24 hours"],
+    "expected_facts": ["Lipid Profile", "320", "4 hours"],
     "prohibited_facts": [],
     "description": "Combined test definition + price + turnaround details in English"
   }

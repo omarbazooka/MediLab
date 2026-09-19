@@ -48,6 +48,7 @@ from app.models.booking import Booking, BookingItem
 from app.models.branch import AvailabilitySlot, Branch
 from app.models.conversation import ConversationSession
 from app.models.customer import Customer
+from app.models.package import Package
 from app.models.test import LabTest
 
 
@@ -55,16 +56,33 @@ def run_live_verification(use_real_llm: bool = False) -> int:
     """Run live multi-turn verification flows against PostgreSQL."""
     app = create_app()
 
+    llm_provider = app.config.get("LLM_PROVIDER", "gemini")
+    llm_model = app.config.get("LLM_MODEL", "gemini-2.5-flash")
+    has_key = bool(app.config.get("GEMINI_API_KEY"))
+    temp = app.config.get("LLM_TEMPERATURE", 0.0)
+    timeout = app.config.get("LLM_TIMEOUT_SECONDS", 30.0)
+    retries = app.config.get("LLM_MAX_RETRIES", 1)
+
     print("=" * 80)
     print("MEDILAB AI — PHASE 3 LIVE RUNTIME VERIFICATION")
     print("=" * 80)
-    print(f"Mode: {'REAL_LLM' if use_real_llm else 'DETERMINISTIC_BENCHMARK'}")
+    print(f"Mode:            {'REAL_LLM' if use_real_llm else 'DETERMINISTIC_BENCHMARK'}")
+    print(f"Provider:        {llm_provider if use_real_llm else 'FakeAgentLLM'}")
+    print(f"Model:           {llm_model}")
+    print(f"API Key Present: {'Yes' if has_key else 'No'}")
+    print(f"Temperature:     {temp}")
+    print(f"Timeout:         {timeout}s")
+    print(f"Retries:         {retries}")
+    print("=" * 80)
+
     if use_real_llm:
+        if not has_key:
+            print("❌ Cannot run in --real-llm mode: GEMINI_API_KEY is not configured.")
+            return 1
         llm = get_llm_provider()
-        print(f"Active Provider: {llm.__class__.__name__}")
+        print(f"Active Provider Instance: {llm.__class__.__name__}")
     else:
         set_override_llm_provider(FakeLLMProvider())
-    print("=" * 80)
 
     agent = MediLabAgent()
     failures: list[str] = []
@@ -88,6 +106,25 @@ def run_live_verification(use_real_llm: bool = False) -> int:
         if not r1.get("pending_clarification"):
             failures.append("Turn 1 did not persist pending clarification")
 
+        # Verify candidate entities in SearchSnapshot exist in real SQL catalog
+        snapshot = r1.get("active_search_snapshot")
+        if not snapshot or not snapshot.get("items"):
+            failures.append("Turn 1 active_search_snapshot is missing or empty")
+        else:
+            for item in snapshot.get("items", []):
+                item_type = item.get("type")
+                item_id = item.get("id")
+                if item_type == "test":
+                    db_test = db.session.get(LabTest, item_id)
+                    if not db_test:
+                        failures.append(f"Turn 1 snapshot test ID {item_id} does not exist in DB")
+                elif item_type == "package":
+                    db_pkg = db.session.get(Package, item_id)
+                    if not db_pkg:
+                        failures.append(
+                            f"Turn 1 snapshot package ID {item_id} does not exist in DB"
+                        )
+
         # Turn 2: Follow-up resolution
         print("\n[Turn 2] User: 'I mean the full option.'")
         r2 = agent.run_turn(session_id, "I mean the full option.")
@@ -96,6 +133,14 @@ def run_live_verification(use_real_llm: bool = False) -> int:
         print(
             f"Selected Test ID: {r2.get('selected_test_id')}, Package ID: {r2.get('selected_package_id')}"
         )
+
+        pkg_id = r2.get("selected_package_id")
+        if not pkg_id:
+            failures.append("Turn 2 did not resolve to a selected_package_id")
+        else:
+            resolved_pkg = db.session.get(Package, pkg_id)
+            if not resolved_pkg:
+                failures.append(f"Turn 2 resolved package ID {pkg_id} does not exist in DB")
 
         if r2.get("pending_clarification") is not None:
             failures.append("Turn 2 failed to clear resolved pending clarification")
@@ -108,15 +153,21 @@ def run_live_verification(use_real_llm: bool = False) -> int:
 
         if "structured_data_node" not in r3.get("route_trace", []):
             failures.append("Turn 3 did not execute structured_data_node")
+        if pkg_id:
+            db_pkg = db.session.get(Package, pkg_id)
+            if db_pkg and str(int(db_pkg.price)) not in (r3.get("response") or ""):
+                failures.append(f"Turn 3 response missing package price {db_pkg.price}")
 
         # Turn 4: RAG question with context carryover
-        print("\n[Turn 4] User: 'Do I need to fast?'")
-        r4 = agent.run_turn(session_id, "Do I need to fast?")
+        print("\n[Turn 4] User: 'Do I need fasting for it?'")
+        r4 = agent.run_turn(session_id, "Do I need fasting for it?")
         print(f"Response: {r4.get('response')}")
         print(f"Route Trace: {' -> '.join(r4.get('route_trace', []))}")
 
         if "rag_node" not in r4.get("route_trace", []):
             failures.append("Turn 4 did not execute rag_node for preparation inquiry")
+        if not r4.get("response"):
+            failures.append("Turn 4 returned empty response for preparation inquiry")
 
         # -------------------------------------------------------------
         # Part 2: Customer History & Strict Isolation Flow
@@ -277,6 +328,37 @@ def run_live_verification(use_real_llm: bool = False) -> int:
             )
 
         # -------------------------------------------------------------
+        # Part 5: Clinical Safety Fail-Closed Verification
+        # -------------------------------------------------------------
+        print("\n--- [PART 5] CLINICAL SAFETY FAIL-CLOSED VERIFICATION ---")
+        fail_sess = f"live-failclosed-{uuid.uuid4().hex[:8]}"
+
+        class _ErrorRaisingProvider(FakeLLMProvider):
+            def classify_safety(self, **kwargs):
+                raise RuntimeError("Simulated Gemini API timeout / 503 service error")
+
+        set_override_llm_provider(_ErrorRaisingProvider())
+        try:
+            print("[Fail-Closed Test] Simulating provider crash on user request...")
+            r_fail = agent.run_turn(fail_sess, "Can you check my blood test?")
+            print(f"Response: {r_fail.get('response')}")
+            print(f"Is Safe: {r_fail.get('is_safe')}, Response Goal: {r_fail.get('response_goal')}")
+
+            if r_fail.get("is_safe") is not False:
+                failures.append(
+                    "FAIL-CLOSED CHECK: Provider exception did not result in is_safe=False"
+                )
+            if r_fail.get("response_goal") != "SAFE_BOUNDARY":
+                failures.append(
+                    "FAIL-CLOSED CHECK: Provider exception did not set response_goal=SAFE_BOUNDARY"
+                )
+        finally:
+            if use_real_llm:
+                set_override_llm_provider(None)
+            else:
+                set_override_llm_provider(FakeLLMProvider())
+
+        # -------------------------------------------------------------
         # Summary
         # -------------------------------------------------------------
         print("\n" + "=" * 80)
@@ -293,6 +375,7 @@ def run_live_verification(use_real_llm: bool = False) -> int:
         print("  - Structured SQL reads & RAG integration: VERIFIED")
         print("  - Bounded customer history & session isolation: VERIFIED (100% leak-proof)")
         print("  - Clinical safety gate boundaries: VERIFIED (Diagnosis, Medication, Symptoms)")
+        print("  - Clinical safety fail-closed resiliency: VERIFIED")
         print("  - Action boundary integrity: VERIFIED (No fake booking confirmation)")
         print("=" * 80)
         return 0

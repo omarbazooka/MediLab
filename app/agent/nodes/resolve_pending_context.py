@@ -102,17 +102,21 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
         target_item = None
 
         if is_full_option:
-            # Prefer the package item or the second item if there are 2 items
+            # Strictly match against visible items that are actually packages or panels
             for it in items:
-                if it.get("type") == "package" or "panel" in it.get("name", "").lower():
+                it_name = str(it.get("name", "")).lower()
+                it_type = str(it.get("type", "")).lower()
+                if it_type == "package" or any(
+                    k in it_name for k in ["panel", "package", "باقة", "شامل", "كامل"]
+                ):
                     target_item = it
                     break
-            if not target_item and len(items) >= 2:
-                target_item = items[1]
         elif ordinal and 1 <= ordinal <= len(items):
             target_item = items[ordinal - 1]
 
-        if target_item:
+        # Verify candidate is genuinely part of the visible snapshot
+        visible_ids = {it.get("id") or it.get("entity_id") for it in items}
+        if target_item and (target_item.get("id") or target_item.get("entity_id")) in visible_ids:
             item_id = target_item.get("id") or target_item.get("entity_id")
             item_type = target_item.get("type") or target_item.get("entity_type")
             if not item_type:
@@ -137,7 +141,7 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
                 selected_package_id = None
                 entities["test_query"] = target_item.get("name") or target_item.get("code")
 
-            # Successfully resolved pending choice!
+            # Successfully resolved pending choice from visible snapshot!
             pending_clarification = None
             needs_clarification = False
 

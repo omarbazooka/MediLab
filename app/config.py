@@ -36,9 +36,16 @@ class BaseConfig:
     DEFAULT_EMBEDDING_PROVIDER = "jina"
     DEFAULT_EMBEDDING_MODEL = "jina-embeddings-v3"
     DEFAULT_EMBEDDING_DIMENSION = 384
-    DEFAULT_LLM_PROVIDER = "fake"
-    DEFAULT_LLM_MODEL = "gpt-4o-mini"
-    DEFAULT_LLM_BASE_URL = ""
+    DEFAULT_LLM_PROVIDER = "gemini"
+    DEFAULT_LLM_MODEL = "gemini-2.5-flash"
+    DEFAULT_LLM_TIMEOUT_SECONDS = 30.0
+    DEFAULT_LLM_MAX_RETRIES = 1
+    DEFAULT_LLM_TEMPERATURE = 0.0
+
+    DEFAULT_MAX_RECENT_MESSAGES = 10
+    DEFAULT_MAX_CUSTOMER_BOOKINGS = 5
+    DEFAULT_MAX_CLARIFICATION_ATTEMPTS = 2
+    DEFAULT_MAX_INPUT_LENGTH = 1000
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS: dict[str, Any] = {"pool_pre_ping": True}
@@ -51,6 +58,49 @@ class BaseConfig:
             dimension = int(dim_raw)
         except (TypeError, ValueError):
             dimension = -1
+
+        try:
+            timeout_sec = float(
+                os.getenv("LLM_TIMEOUT_SECONDS", str(cls.DEFAULT_LLM_TIMEOUT_SECONDS))
+            )
+        except (TypeError, ValueError):
+            timeout_sec = -1.0
+
+        try:
+            max_retries = int(os.getenv("LLM_MAX_RETRIES", str(cls.DEFAULT_LLM_MAX_RETRIES)))
+        except (TypeError, ValueError):
+            max_retries = -1
+
+        try:
+            temperature = float(os.getenv("LLM_TEMPERATURE", str(cls.DEFAULT_LLM_TEMPERATURE)))
+        except (TypeError, ValueError):
+            temperature = -1.0
+
+        try:
+            max_recent_msgs = int(
+                os.getenv("MAX_RECENT_MESSAGES", str(cls.DEFAULT_MAX_RECENT_MESSAGES))
+            )
+        except (TypeError, ValueError):
+            max_recent_msgs = -1
+
+        try:
+            max_cust_bookings = int(
+                os.getenv("MAX_CUSTOMER_BOOKINGS", str(cls.DEFAULT_MAX_CUSTOMER_BOOKINGS))
+            )
+        except (TypeError, ValueError):
+            max_cust_bookings = -1
+
+        try:
+            max_clarif_attempts = int(
+                os.getenv("MAX_CLARIFICATION_ATTEMPTS", str(cls.DEFAULT_MAX_CLARIFICATION_ATTEMPTS))
+            )
+        except (TypeError, ValueError):
+            max_clarif_attempts = -1
+
+        try:
+            max_input_len = int(os.getenv("MAX_INPUT_LENGTH", str(cls.DEFAULT_MAX_INPUT_LENGTH)))
+        except (TypeError, ValueError):
+            max_input_len = -1
 
         return {
             "APP_ENV": cls.APP_ENV,
@@ -69,13 +119,14 @@ class BaseConfig:
             "JINA_API_KEY": os.getenv("JINA_API_KEY", "").strip(),
             "LLM_PROVIDER": os.getenv("LLM_PROVIDER", cls.DEFAULT_LLM_PROVIDER).strip().lower(),
             "LLM_MODEL": os.getenv("LLM_MODEL", cls.DEFAULT_LLM_MODEL).strip(),
-            "LLM_API_KEY": (
-                os.getenv("LLM_API_KEY")
-                or os.getenv("OPENAI_API_KEY")
-                or os.getenv("GEMINI_API_KEY")
-                or ""
-            ).strip(),
-            "LLM_BASE_URL": os.getenv("LLM_BASE_URL", cls.DEFAULT_LLM_BASE_URL).strip(),
+            "GEMINI_API_KEY": os.getenv("GEMINI_API_KEY", "").strip(),
+            "LLM_TIMEOUT_SECONDS": timeout_sec,
+            "LLM_MAX_RETRIES": max_retries,
+            "LLM_TEMPERATURE": temperature,
+            "MAX_RECENT_MESSAGES": max_recent_msgs,
+            "MAX_CUSTOMER_BOOKINGS": max_cust_bookings,
+            "MAX_CLARIFICATION_ATTEMPTS": max_clarif_attempts,
+            "MAX_INPUT_LENGTH": max_input_len,
         }
 
     @classmethod
@@ -96,15 +147,6 @@ class BaseConfig:
                 f"Unsupported EMBEDDING_PROVIDER '{provider}'. Supported providers: jina"
             )
 
-        # Validate LLM provider settings
-        llm_provider = str(config.get("LLM_PROVIDER", "")).strip().lower()
-        valid_llm_providers = {"fake", "openai", "gemini", "groq", "openrouter"}
-        if llm_provider not in valid_llm_providers:
-            valid_str = ", ".join(sorted(valid_llm_providers))
-            raise ConfigurationError(
-                f"Unsupported LLM_PROVIDER '{llm_provider}'. Supported providers: {valid_str}"
-            )
-
         dimension = config.get("EMBEDDING_DIMENSION")
         if not isinstance(dimension, int) or dimension <= 0:
             raise ConfigurationError(
@@ -114,6 +156,57 @@ class BaseConfig:
             raise ConfigurationError(
                 f"MediLab Jina embedding configuration expects dimension 384, got {dimension}."
             )
+
+        # Validate LLM provider settings (Gemini is the only real provider)
+        llm_provider = str(config.get("LLM_PROVIDER", "")).strip().lower()
+        if llm_provider not in {"gemini", "fake"}:
+            raise ConfigurationError(
+                f"Unsupported LLM_PROVIDER '{llm_provider}'. Supported providers: gemini (or fake in testing)"
+            )
+
+        is_testing = bool(config.get("TESTING", False))
+        if llm_provider == "fake" and not is_testing:
+            raise ConfigurationError(
+                "LLM_PROVIDER 'fake' is only permitted when TESTING is True or in testing environments."
+            )
+
+        if llm_provider == "gemini" and not is_testing:
+            gemini_key = str(config.get("GEMINI_API_KEY", "")).strip()
+            if not gemini_key:
+                raise ConfigurationError(
+                    "GEMINI_API_KEY is required and cannot be empty when LLM_PROVIDER is 'gemini'."
+                )
+            gemini_model = str(config.get("LLM_MODEL", "")).strip()
+            if not gemini_model:
+                raise ConfigurationError("LLM_MODEL is required when LLM_PROVIDER is 'gemini'.")
+
+        timeout = config.get("LLM_TIMEOUT_SECONDS")
+        if not isinstance(timeout, (int, float)) or timeout <= 0:
+            raise ConfigurationError(
+                f"Invalid LLM_TIMEOUT_SECONDS '{timeout}'. Must be a positive number."
+            )
+
+        retries = config.get("LLM_MAX_RETRIES")
+        if not isinstance(retries, int) or retries < 0:
+            raise ConfigurationError(
+                f"Invalid LLM_MAX_RETRIES '{retries}'. Must be a non-negative integer."
+            )
+
+        temp = config.get("LLM_TEMPERATURE")
+        if not isinstance(temp, (int, float)) or not (0.0 <= temp <= 2.0):
+            raise ConfigurationError(
+                f"Invalid LLM_TEMPERATURE '{temp}'. Must be between 0.0 and 2.0."
+            )
+
+        for var_name in (
+            "MAX_RECENT_MESSAGES",
+            "MAX_CUSTOMER_BOOKINGS",
+            "MAX_CLARIFICATION_ATTEMPTS",
+            "MAX_INPUT_LENGTH",
+        ):
+            val = config.get(var_name)
+            if not isinstance(val, int) or val <= 0:
+                raise ConfigurationError(f"Invalid {var_name} '{val}'. Must be a positive integer.")
 
 
 class DevelopmentConfig(BaseConfig):
@@ -133,6 +226,7 @@ class TestingConfig(BaseConfig):
     DEFAULT_SECRET_KEY = "test-secret-key-isolated-for-pytest-execution-only"
     DEFAULT_DATABASE_URL = "sqlite:///:memory:"
     DEFAULT_LOG_LEVEL = "WARNING"
+    DEFAULT_LLM_PROVIDER = "fake"
 
     @classmethod
     def as_mapping(cls) -> dict[str, Any]:

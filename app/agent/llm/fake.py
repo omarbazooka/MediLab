@@ -399,6 +399,18 @@ class FakeLLMProvider:
         if not entity and context_summary and context_summary.get("selected_test_code"):
             entity = context_summary["selected_test_code"]
 
+        is_package_selected = bool(context_summary and context_summary.get("selected_package_id"))
+        if is_package_selected and not entity:
+            if has_catalog_aspect or any(
+                w in lower for w in ["include", "يتضمن", "تشمل", "مكونات"]
+            ):
+                return RequestPlan(
+                    primary_intent=AgentIntent.PACKAGE_DETAILS,
+                    requested_information=["price", "tests"],
+                    requires_structured_data=True,
+                    language=lang,
+                )
+
         if has_catalog_aspect and has_rag_aspect:
             return RequestPlan(
                 primary_intent=AgentIntent.TEST_DETAILS,
