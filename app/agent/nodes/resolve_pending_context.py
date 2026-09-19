@@ -106,7 +106,11 @@ def resolve_pending_context(state: MediLabAgentState) -> dict[str, Any]:
     proposed_visible_id = entities.get("visible_item_id")
     proposed_visible_type = entities.get("visible_item_type")
 
-    if (ordinal or proposed_visible_id is not None) and active_snapshot and active_snapshot.get("items"):
+    if (
+        (ordinal or proposed_visible_id is not None)
+        and active_snapshot
+        and active_snapshot.get("items")
+    ):
         items: list[dict[str, Any]] = active_snapshot["items"]
         target_item: dict[str, Any] | None = None
 

@@ -57,7 +57,7 @@ def test_ordinal_resolution_arabic_altany(app: Flask) -> None:
 
 
 def test_ordinal_resolution_the_full_one(app: Flask) -> None:
-    """Resolve 'the full one' to the multi-test panel package in visible snapshot."""
+    """Resolve 'the full one' when LLM proposes visible package and Python verifies it in snapshot."""
     with app.app_context():
         state = create_initial_state("sess-ord-3", "The full one please")
         state["active_search_snapshot"] = {
@@ -68,6 +68,8 @@ def test_ordinal_resolution_the_full_one(app: Flask) -> None:
             ],
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
+        # LLM understanding proposed the visible package from snapshot
+        state["entities"] = {"visible_item_id": 3, "visible_item_type": "package"}
 
         update = resolve_pending_context(state)
 
@@ -102,6 +104,8 @@ def test_the_full_option_cannot_escape_snapshot_when_only_tests_visible(app: Fla
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
         state["needs_clarification"] = True
+        # Even if proposed visible_item_id is 999 (a hidden package), Python rejects it because it's not in snapshot
+        state["entities"] = {"visible_item_id": 999, "visible_item_type": "package"}
 
         update = resolve_pending_context(state)
 
@@ -125,6 +129,8 @@ def test_the_full_option_arabic_with_visible_package(app: Flask) -> None:
         }
         state["pending_clarification"] = {"target": "test_selection", "attempts": 1}
         state["needs_clarification"] = True
+        # LLM understanding proposed the visible package from snapshot
+        state["entities"] = {"visible_item_id": 88, "visible_item_type": "package"}
 
         update = resolve_pending_context(state)
 

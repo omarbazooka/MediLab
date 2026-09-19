@@ -130,9 +130,7 @@ def test_gemini_safety_fails_closed_on_provider_error(monkeypatch: pytest.Monkey
     provider = GeminiProvider(api_key="unit-test-secret")
 
     def raise_provider_error(*args: object, **kwargs: object) -> str:
-        raise RuntimeError(
-            "Gemini API call failed for ?key=unit-test-secret with synthetic 503"
-        )
+        raise RuntimeError("Gemini API call failed for ?key=unit-test-secret with synthetic 503")
 
     monkeypatch.setattr(provider, "_call_generate_content", raise_provider_error)
     classification = provider.classify_safety("What is CBC?")

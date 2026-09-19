@@ -93,6 +93,18 @@ class GeminiProvider:
                     if not parts:
                         raise ValueError("Gemini candidate has no parts.")
                     return str(parts[0].get("text", "")).strip()
+            except httpx.HTTPStatusError as http_exc:
+                status_code = http_exc.response.status_code
+                error_body = self._sanitize_error_text(http_exc.response.text)
+                endpoint = url.split("?")[0]
+                sanitized_msg = (
+                    f"HTTP {status_code} calling model '{self.model}' at {endpoint}: {error_body}"
+                )
+                logger.warning("Gemini attempt %d failed: %s", attempt + 1, sanitized_msg)
+                last_exc = RuntimeError(f"Gemini API call failed: {sanitized_msg}")
+                attempt += 1
+                if attempt <= self.max_retries:
+                    time.sleep(0.5)
             except Exception as exc:
                 sanitized_msg = self._sanitize_error_text(str(exc))
                 logger.warning("Gemini attempt %d failed: %s", attempt + 1, sanitized_msg)

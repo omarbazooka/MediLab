@@ -88,4 +88,5 @@ def test_understand_request_handles_provider_error_gracefully() -> None:
     update = understand_request(state)
 
     assert update["intent"] == AgentIntent.UNKNOWN_AMBIGUOUS.value
-    assert any("timeout" in a for a in update["ambiguities"])
+    assert update["ambiguities"] == ["Request understanding unavailable."]
+    assert update["needs_clarification"] is True

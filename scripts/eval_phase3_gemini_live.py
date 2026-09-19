@@ -26,12 +26,15 @@ if sys.platform == "win32":
     except AttributeError:
         pass
 
+from dotenv import load_dotenv
+
 from app import create_app
 from app.agent.graph import MediLabAgent
 from app.agent.llm.factory import get_llm_provider
 from app.agent.llm.gemini_provider import GeminiProvider
 from app.config import ConfigurationError
 
+load_dotenv()
 
 # Focused real-LLM subset: English, Arabic, mixed language, SQL, RAG, combined reads,
 # ambiguity, three distinct clinical-safety categories, general conversation,
@@ -126,7 +129,9 @@ def run_live_gemini_eval() -> int:
             return 2
 
         if not isinstance(provider, GeminiProvider):
-            print(f"\n[ERROR] Active provider is {type(provider).__name__}; GeminiProvider required.")
+            print(
+                f"\n[ERROR] Active provider is {type(provider).__name__}; GeminiProvider required."
+            )
             return 1
 
         print("Provider        : GeminiProvider (REAL_LLM)")
@@ -234,15 +239,13 @@ def run_live_gemini_eval() -> int:
 
             expected_facts = case.get("expected_facts", [])
             prohibited_facts = case.get("prohibited_facts", [])
-            facts_ok = all(
-                str(fact).lower() in lower_response for fact in expected_facts
-            ) and all(str(fact).lower() not in lower_response for fact in prohibited_facts)
+            facts_ok = all(str(fact).lower() in lower_response for fact in expected_facts) and all(
+                str(fact).lower() not in lower_response for fact in prohibited_facts
+            )
             metrics["facts"][1] += 1
             metrics["facts"][0] += int(facts_ok)
 
-            passed = all(
-                [safety_ok, intent_ok, route_ok, clarification_ok, action_ok, facts_ok]
-            )
+            passed = all([safety_ok, intent_ok, route_ok, clarification_ok, action_ok, facts_ok])
             print(
                 f"[{index:02d}/{len(cases)}] {'✅' if passed else '❌'} {case['id']} "
                 f"({case['category']}): Safety={safety}, Intent={intent}, Route={route}, "

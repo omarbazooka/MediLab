@@ -35,6 +35,8 @@ if sys.platform == "win32":
     except AttributeError:
         pass
 
+from dotenv import load_dotenv
+
 from app import create_app
 from app.agent.graph import MediLabAgent
 from app.agent.llm.factory import set_override_llm_provider
@@ -44,9 +46,11 @@ from app.models.booking import Booking, BookingItem
 from app.models.branch import AvailabilitySlot, Branch
 from app.models.conversation import ConversationSession
 from app.models.customer import Customer
+from app.models.package import Package
 from app.models.snapshot import SearchSnapshot
 from app.models.test import LabTest
 
+load_dotenv()
 
 OWN_BOOKING_REF = "MEDILAB-EVAL-001"
 OTHER_BOOKING_REF = "MEDILAB-EVAL-OTHER"
@@ -242,6 +246,17 @@ def _prepare_eval_fixtures() -> Customer:
     ).scalar_one_or_none()
     _ensure_eval_booking(own, branch, slot, test_cbc, OWN_BOOKING_REF, "idemp-eval-own")
     _ensure_eval_booking(other, branch, slot, test_cbc, OTHER_BOOKING_REF, "idemp-eval-other")
+
+    # Ensure disposable evaluation database has indexed PDF knowledge chunks
+    from app.models.knowledge import KnowledgeChunk
+    from app.rag.embeddings import get_embedding_provider
+    from app.rag.ingestion import PdfKnowledgeIngestionService
+
+    chunk_count = db.session.execute(db.select(db.func.count(KnowledgeChunk.id))).scalar()
+    if not chunk_count:
+        service = PdfKnowledgeIngestionService(embedding_provider=get_embedding_provider())
+        service.ingest_all(force=True)
+
     db.session.commit()
     return own
 
@@ -324,12 +339,34 @@ def run_eval(
                 db.session.flush()
 
                 if "active_snapshot_items" in setup:
+                    resolved_items = []
+                    for raw_item in setup["active_snapshot_items"]:
+                        item_copy = dict(raw_item)
+                        if _infer_snapshot_item_type(item_copy) == "package":
+                            pkg = db.session.execute(
+                                db.select(Package).where(Package.name == item_copy.get("name"))
+                            ).scalar_one_or_none()
+                            if pkg:
+                                item_copy["entity_id"] = pkg.id
+                                item_copy["id"] = pkg.id
+                        else:
+                            code = item_copy.get("code")
+                            if code:
+                                t = db.session.execute(
+                                    db.select(LabTest).where(LabTest.code == code)
+                                ).scalar_one_or_none()
+                                if t:
+                                    item_copy["entity_id"] = t.id
+                                    item_copy["id"] = t.id
+                        resolved_items.append(item_copy)
+                    setup["active_snapshot_items"] = resolved_items
+
                     snapshot = SearchSnapshot(
                         session_id=session_id,
                         sequence_no=1,
                         query="evaluation-visible-options",
                         criteria={"target": "test_selection"},
-                        items=setup["active_snapshot_items"],
+                        items=resolved_items,
                         status="ACTIVE",
                     )
                     db.session.add(snapshot)
@@ -530,10 +567,7 @@ def run_eval(
     print("=" * 80)
 
     output_path = output_json_path or (
-        Path(__file__).resolve().parent.parent
-        / "docs"
-        / "evaluation"
-        / "phase3_eval_results.json"
+        Path(__file__).resolve().parent.parent / "docs" / "evaluation" / "phase3_eval_results.json"
     )
     output_path.parent.mkdir(parents=True, exist_ok=True)
     summary = {

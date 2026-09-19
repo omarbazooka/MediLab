@@ -276,50 +276,61 @@ def test_postgres_search_snapshot_ordinal_resolution(clean_postgres_db: Flask) -
 
 def test_postgres_clarification_persistence_across_turns(clean_postgres_db: Flask) -> None:
     """Test that clarification suspends a turn in PostgreSQL and resumes cleanly on next turn."""
+    from app.agent.llm.factory import set_override_llm_provider
+    from app.agent.llm.fake import FakeLLMProvider
+
     with clean_postgres_db.app_context():
-        repo = ConversationRepository()
-        repo.create_session("sess-clarify-loop")
-        db.session.commit()
+        set_override_llm_provider(FakeLLMProvider())
+        try:
+            repo = ConversationRepository()
+            repo.create_session("sess-clarify-loop")
+            db.session.commit()
 
-        # Turn 1: Broad query generates clarification and persists
-        state_t1 = create_initial_state("sess-clarify-loop", "I want a thyroid test")
-        state_t1["needs_clarification"] = True
-        state_t1["clarification_target"] = "test_selection"
+            # Turn 1: Broad query generates clarification and persists
+            state_t1 = create_initial_state("sess-clarify-loop", "I want a thyroid test")
+            state_t1["needs_clarification"] = True
+            state_t1["clarification_target"] = "test_selection"
+            state_t1["entities"] = {"test_query": "thyroid"}
 
-        t1_update = clarification_node(state_t1)
-        merged_t1 = {**state_t1, **t1_update}
-        persist_context(merged_t1)
+            t1_update = clarification_node(state_t1)
+            merged_t1 = {**state_t1, **t1_update}
+            persist_context(merged_t1)
 
-        # Verify DB has pending clarification
-        s1 = repo.get_session("sess-clarify-loop")
-        assert s1.pending_clarification is not None
-        assert s1.pending_clarification["attempts"] == 1
-        assert s1.active_snapshot_id is not None
+            # Verify DB has pending clarification
+            s1 = repo.get_session("sess-clarify-loop")
+            assert s1.pending_clarification is not None
+            assert s1.pending_clarification["attempts"] == 1
+            assert s1.active_snapshot_id is not None
 
-        # Turn 2: Next turn resumes with new graph invocation
-        ctx_t2 = load_conversation_context("sess-clarify-loop")
-        assert ctx_t2["pending_clarification"] is not None
-        assert ctx_t2["active_search_snapshot"] is not None
+            # Turn 2: Next turn resumes with new graph invocation
+            ctx_t2 = load_conversation_context("sess-clarify-loop")
+            assert ctx_t2["pending_clarification"] is not None
+            assert ctx_t2["active_search_snapshot"] is not None
 
-        # User provides answer: "the full one"
-        state_t2 = create_initial_state("sess-clarify-loop", "the full one")
-        state_t2["active_search_snapshot"] = ctx_t2["active_search_snapshot"]
-        state_t2["pending_clarification"] = ctx_t2["pending_clarification"]
+            # User provides answer: "the full one"
+            state_t2 = create_initial_state("sess-clarify-loop", "the full one")
+            state_t2["active_search_snapshot"] = ctx_t2["active_search_snapshot"]
+            state_t2["pending_clarification"] = ctx_t2["pending_clarification"]
+            snap_items = ctx_t2["active_search_snapshot"]["items"]
+            pkg = next((it for it in snap_items if it.get("type") == "package"), snap_items[-1])
+            state_t2["entities"] = {"visible_item_id": pkg["id"], "visible_item_type": "package"}
 
-        t2_res = resolve_pending_context(state_t2)
-        assert t2_res["pending_clarification"] is None
-        assert t2_res["selected_package_id"] is not None
+            t2_res = resolve_pending_context(state_t2)
+            assert t2_res["pending_clarification"] is None
+            assert t2_res["selected_package_id"] is not None
 
-        # Persist turn 2
-        merged_t2 = {
-            **state_t2,
-            **t2_res,
-            "response_goal": "ANSWER",
-            "final_response": "Details for Vitality Panel",
-        }
-        persist_context(merged_t2)
+            # Persist turn 2
+            merged_t2 = {
+                **state_t2,
+                **t2_res,
+                "response_goal": "ANSWER",
+                "final_response": "Details for Vitality Panel",
+            }
+            persist_context(merged_t2)
 
-        # Verify DB cleared pending clarification and saved selection
-        s2 = repo.get_session("sess-clarify-loop")
-        assert s2.pending_clarification is None
-        assert s2.selected_package_id is not None
+            # Verify DB cleared pending clarification and saved selection
+            s2 = repo.get_session("sess-clarify-loop")
+            assert s2.pending_clarification is None
+            assert s2.selected_package_id is not None
+        finally:
+            set_override_llm_provider(None)
