@@ -411,9 +411,7 @@ def test_dry_run_does_not_require_embedding_provider(fake_pdf_corpus, app, monke
         assert detail["chunks_count"] > 0
 
 
-def test_manifest_lookup_rejects_same_name_outside_canonical_directory(
-    fake_pdf_corpus, tmp_path
-):
+def test_manifest_lookup_rejects_same_name_outside_canonical_directory(fake_pdf_corpus, tmp_path):
     """A same-named external PDF must not impersonate a canonical manifest source."""
     corpus_dir, manifest_file = fake_pdf_corpus
     service = PdfKnowledgeIngestionService(

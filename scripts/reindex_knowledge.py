@@ -50,17 +50,17 @@ def main() -> int:
 
         manifest = pdf_service.load_manifest()
         pdf_entries_by_title = {
-            entry["title"]: entry
-            for entry in manifest
-            if entry.get("rag_use", True)
+            entry["title"]: entry for entry in manifest if entry.get("rag_use", True)
         }
 
         print("=" * 72)
         print("MediLab AI — Safe Knowledge Base Re-Indexing")
         print("=" * 72)
         print(f"Environment:       {app.config.get('MEDILAB_ENV', 'development')}")
-        print(f"Embedding Model:   {app.config.get('EMBEDDING_MODEL')} "
-              f"({app.config.get('EMBEDDING_DIMENSION')} dim)")
+        print(
+            f"Embedding Model:   {app.config.get('EMBEDDING_MODEL')} "
+            f"({app.config.get('EMBEDDING_DIMENSION')} dim)"
+        )
         print("-" * 72)
 
         def reindex_one(doc):

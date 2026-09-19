@@ -190,16 +190,11 @@ class PdfKnowledgeIngestionService:
             self.repository.get_chunks_by_document(existing_doc.id) if existing_doc else []
         )
         existing_hash = (
-            (existing_chunks[0].metadata_ or {}).get("content_hash")
-            if existing_chunks
-            else None
+            (existing_chunks[0].metadata_ or {}).get("content_hash") if existing_chunks else None
         )
         metadata_changed = bool(
             existing_doc
-            and (
-                existing_doc.category != effective_category
-                or existing_doc.active != active
-            )
+            and (existing_doc.category != effective_category or existing_doc.active != active)
         )
 
         is_update = existing_doc is not None
@@ -288,9 +283,7 @@ class PdfKnowledgeIngestionService:
                 chunk_overlap=self.chunk_overlap,
             )
             if not chunk_specs:
-                raise KnowledgeIndexingError(
-                    f"PDF '{path.name}' produced zero indexable chunks."
-                )
+                raise KnowledgeIndexingError(f"PDF '{path.name}' produced zero indexable chunks.")
 
             texts = [chunk["content"] for chunk in chunk_specs]
             embeddings = self._get_embedding_provider().embed_documents(texts)

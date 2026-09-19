@@ -149,3 +149,45 @@ def test_chunk_parsed_document_arabic_support():
     assert "تحليل السكر الصائم" in chunks[0]["content"]
     assert chunks[0]["metadata"]["section_title"] == "1. إرشادات الصيام"
     assert chunks[0]["metadata"]["source_type"] == "pdf"
+
+
+def test_chunk_parsed_document_deterministic_ordering():
+    """Verify that multiple chunking runs on identical documents produce identical chunk order."""
+    doc = create_mock_parsed_document()
+    chunks_1 = chunk_parsed_document(doc, document_id=1, document_version=1, category="General")
+    chunks_2 = chunk_parsed_document(doc, document_id=1, document_version=1, category="General")
+
+    assert len(chunks_1) == len(chunks_2)
+    for c1, c2 in zip(chunks_1, chunks_2, strict=True):
+        assert c1["content"] == c2["content"]
+        assert c1["metadata"] == c2["metadata"]
+
+
+def test_chunk_parsed_document_non_empty_chunks():
+    """Verify that chunking filters empty sections and produces strictly non-empty chunks."""
+    s_valid = ParsedSection(
+        title="1. Real Section",
+        section_number="1",
+        content="This is meaningful section content with sufficient tokens.",
+        page_start=1,
+        page_end=1,
+    )
+    s_empty = ParsedSection(
+        title="2. Blank Section",
+        section_number="2",
+        content="   \n\t  \n",
+        page_start=2,
+        page_end=2,
+    )
+    doc = ParsedDocument(
+        source_file="sparse.pdf",
+        title="Sparse Doc",
+        total_pages=2,
+        sections=[s_valid, s_empty],
+        raw_text=s_valid.content,
+        file_hash="sparse_hash",
+    )
+    chunks = chunk_parsed_document(doc, document_id=1, document_version=1, category="General")
+    assert len(chunks) == 1
+    assert chunks[0]["content"].strip()
+    assert all(len(c["content"].strip()) > 0 for c in chunks)

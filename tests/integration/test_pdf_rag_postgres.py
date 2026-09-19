@@ -17,8 +17,8 @@ import pytest
 
 from app.extensions import db
 from app.rag.embeddings import DeterministicFakeEmbeddingProvider
+from app.rag.indexing import KnowledgeIndexingError, KnowledgeIndexService
 from app.rag.ingestion import PdfKnowledgeIngestionService
-from app.rag.indexing import KnowledgeIndexService, KnowledgeIndexingError
 from app.rag.service import RAGService
 from app.rag.types import RetrievalOutcome
 from app.repositories.knowledge_repository import KnowledgeRepository
@@ -30,6 +30,22 @@ pytestmark = pytest.mark.postgres
 @pytest.fixture
 def fake_provider() -> DeterministicFakeEmbeddingProvider:
     return DeterministicFakeEmbeddingProvider(dimension=384)
+
+
+@pytest.fixture(autouse=True)
+def clean_postgres_knowledge_tables(postgres_app):
+    """Ensure disposable test database has clean knowledge tables before and after each test."""
+    with postgres_app.app_context():
+        db.session.rollback()
+        db.session.execute(db.text("DELETE FROM knowledge_chunks;"))
+        db.session.execute(db.text("DELETE FROM knowledge_documents;"))
+        db.session.commit()
+    yield
+    with postgres_app.app_context():
+        db.session.rollback()
+        db.session.execute(db.text("DELETE FROM knowledge_chunks;"))
+        db.session.execute(db.text("DELETE FROM knowledge_documents;"))
+        db.session.commit()
 
 
 @pytest.fixture
@@ -253,3 +269,72 @@ def test_seed_does_not_deactivate_custom_knowledge(postgres_app) -> None:
         assert preserved is not None
         assert preserved.active is True
         assert preserved.title == "Custom Admin FAQ"
+
+
+def test_safe_reindex_routing_pdf_and_plain_text(postgres_app, fake_provider) -> None:
+    """Verify safe reindex routing: canonical PDF routes to PdfKnowledgeIngestionService and plain text routes to KnowledgeIndexService."""
+    from app.services.knowledge_service import KnowledgeService
+
+    with postgres_app.app_context():
+        repo = KnowledgeRepository()
+        pdf_service = PdfKnowledgeIngestionService(
+            repository=repo,
+            embedding_provider=fake_provider,
+        )
+        knowledge_service = KnowledgeService(
+            repository=repo,
+            embedding_provider=fake_provider,
+        )
+
+        manifest = pdf_service.load_manifest()
+        first_pdf_entry = next(entry for entry in manifest if entry.get("rag_use", True))
+        pdf_entries_by_title = {
+            entry["title"]: entry for entry in manifest if entry.get("rag_use", True)
+        }
+
+        # 1. Ingest canonical PDF
+        pdf_doc, _, _ = pdf_service.ingest_from_manifest_entry(first_pdf_entry, force=True)
+        assert pdf_doc.index_status == "READY"
+        pdf_chunks_before = repo.get_chunks_by_document(pdf_doc.id)
+        assert len(pdf_chunks_before) > 0
+        assert all(c.metadata_.get("source_type") == "pdf" for c in pdf_chunks_before)
+
+        # 2. Create plain text document
+        plain_doc = repo.create_document(
+            title="Custom Clinic Hours FAQ",
+            category="FAQ",
+            content="MediLab clinics operate Saturday through Thursday from 8:00 AM to 10:00 PM.",
+            active=True,
+            index_status="PENDING",
+        )
+        db.session.commit()
+
+        # 3. Simulate reindex_knowledge routing logic
+        docs_to_reindex = [pdf_doc, plain_doc]
+        routed = {}
+        for doc in docs_to_reindex:
+            entry = pdf_entries_by_title.get(doc.title)
+            if entry is not None:
+                indexed, status, detail = pdf_service.ingest_from_manifest_entry(entry, force=True)
+                routed[doc.id] = ("pdf", status, detail.get("chunks_count", 0))
+            else:
+                indexed = knowledge_service.reindex_document(doc.id)
+                chunks = repo.get_chunks_by_document(indexed.id)
+                routed[doc.id] = ("plain_text", "REINDEXED", len(chunks))
+
+        assert routed[pdf_doc.id][0] == "pdf"
+        assert routed[plain_doc.id][0] == "plain_text"
+
+        # Verify PDF document kept its rich PDF metadata and provenance
+        db.session.expire_all()
+        pdf_chunks_after = repo.get_chunks_by_document(pdf_doc.id)
+        assert len(pdf_chunks_after) == len(pdf_chunks_before)
+        for chunk in pdf_chunks_after:
+            assert chunk.metadata_.get("source_type") == "pdf"
+            assert "section_title" in chunk.metadata_
+            assert "page_start" in chunk.metadata_
+
+        # Verify plain-text document is indexed and READY
+        plain_chunks = repo.get_chunks_by_document(plain_doc.id)
+        assert len(plain_chunks) > 0
+        assert repo.get_document_by_id(plain_doc.id).index_status == "READY"
