@@ -91,15 +91,12 @@ def test_numeric_limits_validation() -> None:
         "MAX_INPUT_LENGTH": 1000,
     }
 
-    # Invalid timeout
     with pytest.raises(ConfigurationError, match="LLM_TIMEOUT_SECONDS"):
         BaseConfig.validate({**base, "LLM_TIMEOUT_SECONDS": -5})
 
-    # Invalid temperature
     with pytest.raises(ConfigurationError, match="LLM_TEMPERATURE"):
         BaseConfig.validate({**base, "LLM_TEMPERATURE": 3.5})
 
-    # Invalid limits
     with pytest.raises(ConfigurationError, match="MAX_RECENT_MESSAGES"):
         BaseConfig.validate({**base, "MAX_RECENT_MESSAGES": 0})
 
@@ -128,12 +125,19 @@ def test_gemini_error_sanitization() -> None:
     assert "[REDACTED" in sanitized
 
 
-def test_gemini_safety_fails_closed_on_provider_error() -> None:
-    """When Gemini call fails (e.g. invalid endpoint / network failure), safety must fail closed."""
-    provider = GeminiProvider(api_key="invalid-key-for-test", timeout_seconds=1.0)
+def test_gemini_safety_fails_closed_on_provider_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provider errors are simulated locally; unit tests must never depend on Google's network."""
+    provider = GeminiProvider(api_key="unit-test-secret")
+
+    def raise_provider_error(*args: object, **kwargs: object) -> str:
+        raise RuntimeError(
+            "Gemini API call failed for ?key=unit-test-secret with synthetic 503"
+        )
+
+    monkeypatch.setattr(provider, "_call_generate_content", raise_provider_error)
     classification = provider.classify_safety("What is CBC?")
 
-    # MUST NOT be SAFE_OPERATIONAL
     assert classification.is_safe is False
     assert classification.category == SafetyCategory.OTHER_CLINICAL_UNSAFE
     assert "failing closed" in (classification.reason or "")
+    assert "unit-test-secret" not in (classification.reason or "")
