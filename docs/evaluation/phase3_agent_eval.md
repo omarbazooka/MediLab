@@ -8,102 +8,106 @@
 
 ## Current verification status
 
-Phase 3 is **TESTED** on the current branch head, but **LIVE_VERIFICATION_BLOCKED** for real Gemini external calls.
+Phase 3 is **IN PROGRESS / CURRENT-HEAD VERIFICATION REQUIRED**.
 
-- **Deterministic & Automated Quality:** **TESTED** (100% passing across all gates on current HEAD).
-  - Ruff check: All checks passed.
-  - Ruff format: Clean (137 files).
-  - Unit tests: 176 passed.
-  - PostgreSQL integration tests: 38 passed.
-  - Full suite: 214 passed.
-  - Strict deterministic 42-case benchmark: 42/42 passed (100.0% across all 8 metrics).
-- **Live Gemini Verification:** **BLOCKED** on `GEMINI_API_KEY`.
-  - The runtime correctly instantiates `GeminiProvider` with model `gemini-2.5-flash` and makes real REST calls to Google Generative Language API without fake fallback.
-  - Google returns HTTP 400 with body:
-    `{"error": {"code": 400, "message": "API key not valid. Please pass a valid API key.", "status": "INVALID_ARGUMENT", "details": [{"reason": "API_KEY_INVALID"}]}}`
-  - Cause: The configured key is a Google Cloud OAuth/project identifier (`gen-lang-client-...`) instead of an AI Studio API key (`AIzaSy...`).
-  - Safety gate behavior: Fails closed to `OTHER_CLINICAL_UNSAFE` with zero exception text leaked to customers. Safe healthcare boundaries are strictly preserved.
+The last fully executed deterministic evidence was produced on SHA
+`4cad42ec62973983f7d5d906555b61f6ac78c6ef` before the latest independent-QA executable changes:
+
+- Ruff: PASS
+- Format check: PASS
+- Unit tests: **176 passed**
+- PostgreSQL integration tests: **38 passed**
+- Full suite: **214 passed**
+- Strict deterministic benchmark: **42/42 passed**
+
+Those numbers are now **historical regression evidence**, not signoff evidence for the newer branch
+head. Independent QA subsequently changed graph routing, context hydration, Gemini prompting,
+SearchSnapshot lifecycle, response validation, persistence, availability reads, testing isolation,
+and the runtime verification script. A fresh execution is required before the new head may be called
+`TESTED`.
+
+Real Gemini verification is still **BLOCKED** by the locally configured credential. The last real
+request reached `GeminiProvider` / `gemini-2.5-flash` without Fake fallback, but Google returned HTTP
+400 `API_KEY_INVALID`. The repository cannot correct an untracked local credential; a valid Gemini API
+key must be supplied locally and the real runner re-executed. Do not infer the exact credential type
+from its text alone; the authoritative fact is that Google rejected it as invalid.
 
 ## Evaluation architecture
 
-Phase 3 intentionally has two different evaluation tiers.
+Phase 3 intentionally has two distinct evaluation tiers.
 
 ### Tier A — deterministic graph regression
 
-`uv run python scripts/eval_phase3_agent.py`
+```bash
+uv run python scripts/eval_phase3_agent.py
+```
 
-- Provider: `FakeLLMProvider` (test double only)
-- Database: **must be `TEST_DATABASE_URL`**, a disposable PostgreSQL database
-- Purpose: repeatable graph/state/business-grounding regression
-- Covers exact safety category, safe-request intent, graph route, clarification state, exact visible
-  ordinal selection, customer/session isolation, action-boundary integrity, expected/prohibited facts,
-  and graph latency.
-- This benchmark is **not** evidence of Gemini language-model accuracy.
-
-Independent QA tightened this runner after discovering that the earlier implementation could
-inflate metrics (for example, counting a correct route as a correct intent and not requiring every
-applicable check for a case pass). The hardened runner now requires the relevant checks directly and
-returns failure if any case fails.
+- Provider: `FakeLLMProvider` test double
+- Database: disposable PostgreSQL from `TEST_DATABASE_URL`
+- Purpose: reproducible graph/state/business-truth regression
+- Measures exact safety category, safe-request intent, route, clarification state, exact visible
+  ordinal selection, session/customer isolation, action-boundary integrity, expected/prohibited
+  facts, and graph latency
+- This tier is **not** evidence of Gemini language-model accuracy
 
 ### Tier B — real Gemini evaluation
 
-`uv run python scripts/eval_phase3_gemini_live.py`
+```bash
+uv run python scripts/eval_phase3_gemini_live.py
+```
 
 - Provider: `GeminiProvider` only
-- Model: `gemini-2.5-flash`
-- No fake fallback is permitted
-- Focused 16-case set covers English, Arabic, mixed-language input, structured SQL, RAG,
-  combined SQL+RAG, ambiguity/clarification, medical-safety boundaries, prompt injection,
-  general conversation, and controlled out-of-domain handling.
-- Measures real provider safety, safe-request intent, route, clarification, response grounding,
-  and real network/model latency.
+- Model: configured `LLM_MODEL` (currently `gemini-2.5-flash`)
+- No fake fallback permitted
+- Measures real provider behavior and network/model latency
+- A successful run is required before Phase 3 may be called `LIVE_VERIFIED`
 
-A successful run of this tier is required before Phase 3 can be called `LIVE_VERIFIED`.
+The separate multi-turn verifier:
 
-## Historical automated evidence — SHA `f225d4538e0c9c1fbed96fcc1c646a926341f2dc`
+```bash
+uv run python scripts/verify_agent_live.py --real-llm
+```
 
-Before the independent QA code changes, Antigravity recorded:
+now runs against **disposable `TEST_DATABASE_URL` only**, so QA fixtures can never be written into the
+Supabase/application database. Without `--real-llm` it uses the deterministic test provider on the
+same disposable database.
 
-- Unit tests: **172 passed**
-- PostgreSQL integration: **38 passed**
-- Full suite: **210 passed**
-- Ruff: **PASS**
-- Format check: **PASS**
-- 42-case deterministic benchmark: reported **100%** across its then-current metrics
+## Independent-QA hardening after SHA `4cad42e`
 
-These results establish a useful historical baseline, but the evaluator itself was subsequently
-hardened and executable code changed. They are not current-head signoff evidence.
+The current branch adds/fixes:
 
-The earlier deterministic latency numbers (sub-millisecond understanding/composition timings) came
-from `FakeLLMProvider`; they must never be presented as Gemini latency.
+- customer-history + policy/SQL **multi-source** routing instead of letting the history route eclipse
+  RAG/structured evidence;
+- bounded recent conversation, selected entity labels, visible options, and privacy-minimized customer
+  history supplied to Gemini understanding;
+- Gemini safety classification now receives bounded recent context;
+- technical provider error details are logged only after sanitization and are not copied into durable
+  conversational state;
+- clarification wording remains LLM-driven while Python renders the exact numbered business options
+  that are saved in the `SearchSnapshot`;
+- one active visible snapshot per session; previous active snapshots become `STALE` and stale snapshots
+  cannot resolve ordinals/semantic references;
+- response validation requires an explicit `{success: true, committed: true}` action result before any
+  customer-facing mutation success claim;
+- malformed session IDs are never persisted as durable conversation rows;
+- pending actions and meaningful `last_updated_at` / `last_turn_latency_ms` state are persisted;
+- test configuration always uses FakeLLM by default even if a developer `.env` contains Gemini
+  credentials, preventing accidental Google calls from ordinary pytest runs;
+- structured missing-data is distinguished from infrastructure failure;
+- current availability slots can be read from the authoritative `BranchService`;
+- `.env.example` clarifies that `GEMINI_API_KEY` must be a valid Gemini API credential and not an OAuth
+  client/project identifier;
+- multi-turn verification no longer writes synthetic QA history into the durable application database.
 
-## Independent QA changes requiring a fresh run
+## Dataset provenance
 
-The independent review hardened several areas that materially affect verification:
+The 42 cases use `calibration` and `post_implementation_validation` labels. The latter are **not an
+independent holdout** because developers have inspected and modified the cases during hardening.
+Describe them as post-implementation regression/validation cases only.
 
-- Gemini-only configuration and no silent fake fallback
-- safety-provider fail-closed behavior and secret sanitization
-- configured input/context/clarification bounds wired into runtime behavior
-- semantic visible-option references interpreted by the LLM but deterministically validated against
-  the exact active `SearchSnapshot`
-- multiple real catalog candidates trigger clarification rather than first-row selection
-- hallucinated currency amounts are blocked unless present in verified structured SQL facts
-- RAG infrastructure failure is separated from a legitimate `NO_KNOWLEDGE` result
-- structured-data failure returns a controlled response rather than leaking raw exceptions
-- deterministic evaluator uses the disposable test DB and strict per-case checks
-- live Gemini evaluator uses exact provider/safety/intent/route checks and real latency measurements
+## Final acceptance gate
 
-## Dataset splits
-
-The 42 cases use labels such as `calibration` and `post_implementation_validation`.
-
-The validation cases are **not an independent holdout**: developers have inspected and modified the
-evaluation data during hardening. They should therefore be described as post-implementation
-validation/regression cases, not as evidence of unbiased generalization.
-
-## Current acceptance gate
-
-Before Phase 3 signoff, run on the final code SHA:
+Run on the final code SHA:
 
 ```bash
 uv sync --frozen
@@ -113,26 +117,28 @@ uv run pytest tests/unit -v
 uv run pytest -m postgres -v
 uv run pytest -q
 uv run python scripts/eval_phase3_agent.py
+uv run python scripts/verify_agent_live.py
 uv run python scripts/eval_phase3_gemini_live.py
+uv run python scripts/verify_agent_live.py --real-llm
 ```
 
-Required critical targets:
+Critical targets remain engineering targets, not official assessment weights:
 
 - safety category accuracy: 100%
 - customer/session isolation: 100%
 - no unsupported action-success claims: 100%
-- visible ordinal resolution: 100%
+- exact visible-reference resolution: 100%
 - safe-request intent accuracy: >= 90%
 - route accuracy: >= 90%
 - clarification decision accuracy: >= 90%
 - fact grounding: >= 90%
-- real Gemini run: must execute successfully with no fake fallback
+- real Gemini run: successful, with no fake fallback
 
-Record actual counts, failures, and latency from the final run. Do not copy the historical numbers if
-they are not reproduced.
+Do not copy historical counts onto a newer SHA. Record actual counts, failures, and latency after the
+fresh run.
 
 ## Conclusion
 
-The architecture and historical deterministic evidence are strong, but Phase 3 is not yet signed off
-on the current head. Current-head automated reruns plus a successful real Gemini evaluation are the
-remaining verification gates before merge.
+The latest code contains additional correctness and privacy hardening beyond the last 214-test / 42-case
+execution. Therefore the branch remains **IN PROGRESS** until those gates are rerun on the final head and
+real Gemini succeeds with a valid local credential.
