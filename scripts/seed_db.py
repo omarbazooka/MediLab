@@ -379,50 +379,113 @@ def seed_availability_slots(branches: dict[str, Branch]) -> int:
 
 
 def seed_knowledge_documents() -> dict[str, KnowledgeDocument]:
-    """Seed non-clinical preparation, policy, and FAQ knowledge documents (index_status=PENDING)."""
-    docs_data = [
-        {
-            "title": "Fasting Guidelines for Diagnostic Blood Tests",
-            "category": "Preparation",
-            "content": (
-                "Fasting instructions for diagnostic tests: For Lipid Profile, complete fasting "
-                "for 10 to 12 hours is required (water is permitted). For Fasting Blood Sugar (FBS), "
-                "an 8-hour fast is required. Coffee, tea, milk, juices, and smoking are strictly "
-                "prohibited during the fasting period. For medication-related preparation, follow "
-                "the instructions provided by your laboratory or qualified healthcare professional."
-            ),
-        },
-        {
-            "title": "Home Sample Collection Process & Service Areas",
-            "category": "Services",
-            "content": (
-                "MediLab provides professional home sample collection across Greater Cairo including "
-                "Nasr City, Heliopolis, Maadi, Dokki, Mohandessin, and New Cairo. A certified phlebotomist "
-                "arrives during your reserved time slot equipped with sterile collection equipment "
-                "and cold-chain transport containers to guarantee pre-analytical sample integrity."
-            ),
-        },
-        {
-            "title": "Appointment Cancellation & Rescheduling Policy",
-            "category": "Policies",
-            "content": (
-                "Branch appointments may be rescheduled or cancelled up to 2 hours prior to the "
-                "scheduled appointment time. Home collection visits can be cancelled or rescheduled up "
-                "to 4 hours prior to the scheduled slot. Cancellations made within policy guidelines "
-                "incur zero fees and immediately release reserved phlebotomy capacity."
-            ),
-        },
-        {
-            "title": "Turnaround Times and Result Delivery",
-            "category": "FAQ",
-            "content": (
-                "Standard routine tests (CBC, Glucose, Kidney, Liver, Urine) are reported within 2 to 5 hours "
-                "from sample receipt. Specialized tests such as TSH are reported within 24 hours, and Vitamin D "
-                "within 48 hours. Official certified results are sent via WhatsApp notification, email, and "
-                "available on the MediLab patient portal."
-            ),
-        },
+    """Seed authoritative non-clinical knowledge documents.
+
+    If knowledge_manifest.json is present, bootstraps the canonical 7 MediLab PDF documents
+    in PENDING status (deferring detailed chunk content to the PDF ingestion service).
+    Deactivates any obsolete legacy inline documents to prevent competing sources of truth.
+    """
+    import json
+    from pathlib import Path
+
+    base_dir = Path(__file__).resolve().parent.parent
+    manifest_paths = [
+        base_dir / "knowledge" / "knowledge_manifest.json",
+        base_dir / "knowledge_manifest.json",
     ]
+
+    manifest_file = next((p for p in manifest_paths if p.exists()), None)
+
+    if manifest_file:
+        with open(manifest_file, encoding="utf-8") as f:
+            manifest_data = json.load(f)
+
+        docs_data = [
+            {
+                "title": item["title"],
+                "category": item["category"],
+                "content": (
+                    f"Authoritative MediLab policy document from {item['source_file']}. "
+                    "Full text and structure-aware chunking managed by PDF ingestion."
+                ),
+                "version": item.get("version", 1),
+                "active": item.get("active", True),
+            }
+            for item in manifest_data
+        ]
+        manifest_titles = {d["title"] for d in docs_data}
+
+        # Deactivate only the original four inline seed documents. Never deactivate arbitrary
+        # knowledge created later through CRUD/admin workflows just because it is not in the
+        # repository PDF manifest.
+        legacy_seed_titles = {
+            "Fasting Guidelines for Diagnostic Blood Tests",
+            "Home Sample Collection Process & Service Areas",
+            "Appointment Cancellation & Rescheduling Policy",
+            "Turnaround Times and Result Delivery",
+        }
+        all_existing = db.session.execute(select(KnowledgeDocument)).scalars().all()
+        for old_doc in all_existing:
+            if (
+                old_doc.title in legacy_seed_titles
+                and old_doc.title not in manifest_titles
+                and old_doc.active
+            ):
+                old_doc.active = False
+                db.session.flush()
+
+    else:
+        docs_data = [
+            {
+                "title": "Fasting Guidelines for Diagnostic Blood Tests",
+                "category": "Preparation",
+                "content": (
+                    "Fasting instructions for diagnostic tests: For Lipid Profile, complete fasting "
+                    "for 10 to 12 hours is required (water is permitted). For Fasting Blood Sugar (FBS), "
+                    "an 8-hour fast is required. Coffee, tea, milk, juices, and smoking are strictly "
+                    "prohibited during the fasting period. For medication-related preparation, follow "
+                    "the instructions provided by your laboratory or qualified healthcare professional."
+                ),
+                "version": 1,
+                "active": True,
+            },
+            {
+                "title": "Home Sample Collection Process & Service Areas",
+                "category": "Services",
+                "content": (
+                    "MediLab provides professional home sample collection across Greater Cairo including "
+                    "Nasr City, Heliopolis, Maadi, Dokki, Mohandessin, and New Cairo. A certified phlebotomist "
+                    "arrives during your reserved time slot equipped with sterile collection equipment "
+                    "and cold-chain transport containers to guarantee pre-analytical sample integrity."
+                ),
+                "version": 1,
+                "active": True,
+            },
+            {
+                "title": "Appointment Cancellation & Rescheduling Policy",
+                "category": "Policies",
+                "content": (
+                    "Branch appointments may be rescheduled or cancelled up to 2 hours prior to the "
+                    "scheduled appointment time. Home collection visits can be cancelled or rescheduled up "
+                    "to 4 hours prior to the scheduled slot. Cancellations made within policy guidelines "
+                    "incur zero fees and immediately release reserved phlebotomy capacity."
+                ),
+                "version": 1,
+                "active": True,
+            },
+            {
+                "title": "Turnaround Times and Result Delivery",
+                "category": "FAQ",
+                "content": (
+                    "Standard routine tests (CBC, Glucose, Kidney, Liver, Urine) are reported within 2 to 5 hours "
+                    "from sample receipt. Specialized tests such as TSH are reported within 24 hours, and Vitamin D "
+                    "within 48 hours. Official certified results are sent via WhatsApp notification, email, and "
+                    "available on the MediLab patient portal."
+                ),
+                "version": 1,
+                "active": True,
+            },
+        ]
 
     seeded: dict[str, KnowledgeDocument] = {}
     for item in docs_data:
@@ -434,16 +497,23 @@ def seed_knowledge_documents() -> dict[str, KnowledgeDocument]:
                 title=item["title"],
                 category=item["category"],
                 content=item["content"],
-                active=True,
-                version=1,
+                active=item.get("active", True),
+                version=item.get("version", 1),
                 index_status="PENDING",
             )
             db.session.add(doc)
             db.session.flush()
         else:
-            if doc.content != item["content"]:
+            # The PDF corpus owns canonical document content once ingestion has occurred.
+            # Seed may synchronize stable manifest metadata, but it must never overwrite the
+            # parsed PDF text or invalidate READY chunks with a bootstrap placeholder.
+            doc.category = item["category"]
+            doc.active = item.get("active", True)
+            if not (doc.content or "").strip():
                 doc.content = item["content"]
-                db.session.flush()
+            if not doc.index_status:
+                doc.index_status = "PENDING"
+            db.session.flush()
         seeded[item["title"]] = doc
 
     return seeded

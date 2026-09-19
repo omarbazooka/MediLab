@@ -94,3 +94,27 @@ def test_production_rejects_non_postgres_database_url() -> None:
 
 def test_production_accepts_valid_parameters() -> None:
     ProductionConfig.validate(_valid_production_mapping())
+
+
+def test_config_rejects_unsupported_embedding_provider() -> None:
+    mapping = _valid_production_mapping()
+    mapping["EMBEDDING_PROVIDER"] = "unsupported-provider"
+
+    with pytest.raises(ConfigurationError, match="Unsupported EMBEDDING_PROVIDER"):
+        ProductionConfig.validate(mapping)
+
+
+def test_config_rejects_non_positive_embedding_dimension() -> None:
+    mapping = _valid_production_mapping()
+    mapping["EMBEDDING_DIMENSION"] = 0
+
+    with pytest.raises(ConfigurationError, match="Dimension must be a positive integer"):
+        ProductionConfig.validate(mapping)
+
+
+def test_config_rejects_jina_dimension_other_than_384() -> None:
+    mapping = _valid_production_mapping()
+    mapping["EMBEDDING_DIMENSION"] = 512
+
+    with pytest.raises(ConfigurationError, match="expects dimension 384"):
+        ProductionConfig.validate(mapping)

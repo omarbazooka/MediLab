@@ -33,6 +33,9 @@ class BaseConfig:
     DEFAULT_SECRET_KEY = ""
     DEFAULT_DATABASE_URL = ""
     DEFAULT_LOG_LEVEL = "INFO"
+    DEFAULT_EMBEDDING_PROVIDER = "jina"
+    DEFAULT_EMBEDDING_MODEL = "jina-embeddings-v3"
+    DEFAULT_EMBEDDING_DIMENSION = 384
 
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     SQLALCHEMY_ENGINE_OPTIONS: dict[str, Any] = {"pool_pre_ping": True}
@@ -40,6 +43,12 @@ class BaseConfig:
     @classmethod
     def as_mapping(cls) -> dict[str, Any]:
         """Resolve environment-backed values for a fresh Flask app instance."""
+        try:
+            dim_raw = os.getenv("EMBEDDING_DIMENSION", str(cls.DEFAULT_EMBEDDING_DIMENSION))
+            dimension = int(dim_raw)
+        except (TypeError, ValueError):
+            dimension = -1
+
         return {
             "APP_ENV": cls.APP_ENV,
             "DEBUG": cls.DEBUG,
@@ -49,6 +58,12 @@ class BaseConfig:
             "SQLALCHEMY_TRACK_MODIFICATIONS": cls.SQLALCHEMY_TRACK_MODIFICATIONS,
             "SQLALCHEMY_ENGINE_OPTIONS": cls.SQLALCHEMY_ENGINE_OPTIONS.copy(),
             "LOG_LEVEL": os.getenv("LOG_LEVEL", cls.DEFAULT_LOG_LEVEL).upper(),
+            "EMBEDDING_PROVIDER": os.getenv("EMBEDDING_PROVIDER", cls.DEFAULT_EMBEDDING_PROVIDER)
+            .strip()
+            .lower(),
+            "EMBEDDING_MODEL": os.getenv("EMBEDDING_MODEL", cls.DEFAULT_EMBEDDING_MODEL).strip(),
+            "EMBEDDING_DIMENSION": dimension,
+            "JINA_API_KEY": os.getenv("JINA_API_KEY", "").strip(),
         }
 
     @classmethod
@@ -60,6 +75,23 @@ class BaseConfig:
             valid_str = ", ".join(sorted(valid_log_levels))
             raise ConfigurationError(
                 f"Invalid LOG_LEVEL '{log_level}'. Must be one of: {valid_str}"
+            )
+
+        # Validate embedding settings
+        provider = str(config.get("EMBEDDING_PROVIDER", "")).strip().lower()
+        if provider not in {"jina"}:
+            raise ConfigurationError(
+                f"Unsupported EMBEDDING_PROVIDER '{provider}'. Supported providers: jina"
+            )
+
+        dimension = config.get("EMBEDDING_DIMENSION")
+        if not isinstance(dimension, int) or dimension <= 0:
+            raise ConfigurationError(
+                f"Invalid EMBEDDING_DIMENSION '{dimension}'. Dimension must be a positive integer."
+            )
+        if provider == "jina" and dimension != 384:
+            raise ConfigurationError(
+                f"MediLab Jina embedding configuration expects dimension 384, got {dimension}."
             )
 
 

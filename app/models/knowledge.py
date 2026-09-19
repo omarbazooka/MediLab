@@ -85,7 +85,7 @@ class KnowledgeChunk(TimestampMixin, db.Model):
     )
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    # Embedding vector locked to intfloat/multilingual-e5-small (384 dimensions)
+    # Phase 2 runtime embeddings use jina-embeddings-v3 with explicit 384-dim output.
     embedding: Mapped[list[float] | None] = mapped_column(Vector(384), nullable=True)
     metadata_: Mapped[dict[str, Any]] = mapped_column(
         "metadata",

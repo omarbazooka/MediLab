@@ -14,6 +14,8 @@ from app import create_app
 
 load_dotenv()
 
+_POSTGRES_REACHABLE: dict[str, bool] = {}
+
 
 @pytest.fixture
 def app() -> Flask:
@@ -57,14 +59,47 @@ def validate_test_database_url(test_db_url: str, app_db_url: str | None = None) 
 
 
 @pytest.fixture
-def postgres_app() -> Generator[Flask, None, None]:
+def postgres_app(request: pytest.FixtureRequest) -> Generator[Flask, None, None]:
     """Create an app bound to an explicitly configured real PostgreSQL database."""
     database_url = os.getenv("TEST_DATABASE_URL", "").strip()
-    if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+    is_explicit_postgres_run = "postgres" in (request.config.getoption("-m") or "")
+
+    if not database_url:
+        if is_explicit_postgres_run:
+            pytest.fail(
+                "TEST_DATABASE_URL is not configured but postgres tests were explicitly requested."
+            )
         pytest.skip("TEST_DATABASE_URL must point to PostgreSQL for integration tests")
+
+    if not database_url.startswith(("postgresql://", "postgresql+psycopg://")):
+        pytest.fail(
+            f"TEST_DATABASE_URL must be a PostgreSQL connection string, got: {database_url[:15]}..."
+        )
 
     app_db_url = os.getenv("DATABASE_URL", "").strip()
     validate_test_database_url(database_url, app_db_url)
+
+    import socket
+    from urllib.parse import urlparse
+
+    parsed = urlparse(database_url.replace("postgresql+psycopg://", "postgresql://"))
+    host = parsed.hostname or "localhost"
+    port = parsed.port or 5432
+    cache_key = f"{host}:{port}"
+    if cache_key in _POSTGRES_REACHABLE:
+        if not _POSTGRES_REACHABLE[cache_key]:
+            pytest.fail(
+                f"Configured TEST_DATABASE_URL at {cache_key} is unreachable. Ensure local Docker PostgreSQL is running."
+            )
+    else:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                _POSTGRES_REACHABLE[cache_key] = True
+        except (OSError, TimeoutError):
+            _POSTGRES_REACHABLE[cache_key] = False
+            pytest.fail(
+                f"Configured TEST_DATABASE_URL at {cache_key} is unreachable. Ensure local Docker PostgreSQL is running."
+            )
 
     app_instance = create_app(
         "testing",

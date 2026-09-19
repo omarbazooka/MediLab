@@ -1,28 +1,56 @@
 # MediLab AI
 
 **Domain:** Diagnostic Laboratory AI Sales & Customer Service Agent  
-**Current scope:** Phase 1 — ORM, Migrations & Seed Data  
+**Current scope:** Phase 2 — Standalone Hybrid RAG Core
 **Target deadline:** 20 September 2026
 
-MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 1 establishes the deterministic PostgreSQL persistence and business-service foundation that later RAG, LangGraph, customer UI, and admin phases will use.
+MediLab AI is a Flask-based diagnostic-laboratory customer-service/sales assessment project. Phase 2 establishes the modular, explainable, and deterministic hybrid RAG retrieval pipeline and managed knowledge lifecycle that later conversational LangGraph agents will use.
 
-## Phase 1 status
+## Phase 2 status
 
-Implemented and locally/live verified on the Phase 1 branch:
+Current Status: **TESTED** + **LIVE_VERIFIED** (PR #3 open for independent signoff):
 
-- 15 SQLAlchemy 2.x domain models
-- Supabase-hosted PostgreSQL as the durable application database
-- disposable Docker PostgreSQL 16 + pgvector for migration/integration testing
-- Alembic migrations through revision `44cef7a277a7`
-- pgvector `VECTOR(384)` schema for `intfloat/multilingual-e5-small`
-- PostgreSQL FTS `TSVECTOR` maintenance trigger + GIN index
-- deterministic test/package/branch/availability services
-- transactional branch and HOME booking service
-- slot row locking, idempotency, controlled rollback, cancellation locking
-- visible `SearchSnapshot` persistence with cross-session active-snapshot protection
-- deterministic, rerunnable fictional seed data
+- **Custom Python RAG Pipeline:** PyMuPDF for PDF parsing, custom structure-aware section parser + `langchain-text-splitters` (`RecursiveCharacterTextSplitter`) strictly for oversized-section fallback.
+- **Strict Dependency Boundary:** Zero full `langchain` or `langchain-community` packages. Zero LangGraph (deferred to Phase 3).
+- **Structure-Aware PDF Ingestion:** Ingestion service and CLI parsing realistic MediLab PDF knowledge corpus with page and section provenance.
+- **Jina AI embeddings:** `jina-embeddings-v3` @ 384 dimensions via Matryoshka dimension truncation.
+- **Explicit task conditioning:** `retrieval.passage` for document chunks, `retrieval.query` for search queries.
+- **Atomic knowledge indexing lifecycle:** `PENDING` -> `INDEXING` -> `READY` / `FAILED` with SHA-256 change detection.
+- **PostgreSQL pgvector:** Cosine distance (`<=>`) semantic search (top 8).
+- **PostgreSQL Full-Text Search:** Against `search_vector` with `simple` dictionary (top 8).
+- **Reciprocal Rank Fusion (RRF):** Fusion with $k=60$ combining semantic and lexical ranks.
+- **Deterministic query rewrite:** Context-aware query rewrite handling English and Arabic anaphora.
+- **Signal-based retrieval grading:** `GOOD`, `WEAK_RETRY`, `AMBIGUOUS_USER_QUERY`, `NO_KNOWLEDGE`.
+- **Bounded retry:** Maximum of 1 alternate query retry on `WEAK_RETRY` (capped at 2 attempts total).
+- **Final context assembly:** Top 3–4 deduplicated chunks preserving section title, page number, and source file provenance.
+- **Zero database migrations:** Storing rich PDF source provenance in existing `KnowledgeChunk.metadata_` JSON.
+- **Strict data boundary:** Clinical preparation and customer service policies in RAG; live test prices, packages, branch availability slots, and booking state in SQL.
 
-Not implemented yet: RAG runtime/retrieval, LangGraph orchestration, customer chat UI, admin dashboard, and Meta Messenger.
+## RAG Architecture & Flow
+
+```text
+PDF Knowledge Ingestion:
+PDF Corpus (7 Guides)
+  └──> PyMuPDF (fitz) page/block extraction
+        └──> Heading & Section Detection (deterministic numbered headings)
+              └──> Structure-Aware Chunks (PDF_CHUNK_SIZE=1400, OVERLAP=200)
+                    └──> RecursiveCharacterTextSplitter (oversized section fallback)
+                          └──> KnowledgeDocument & KnowledgeChunk
+                                └──> Jina retrieval.passage @384
+                                      └──> PostgreSQL pgvector + FTS search_vector
+
+Runtime Retrieval:
+User Query
+  └──> Deterministic Context-Aware Rewrite (English/Arabic)
+        └──> Jina retrieval.query @384
+              ├──> pgvector Cosine Semantic Retrieval (Top 8)
+              └──> PostgreSQL FTS Lexical Retrieval (Top 8)
+                    └──> Reciprocal Rank Fusion (RRF k=60)
+                          └──> Signal-Based Retrieval Grader
+                                ├──> GOOD -> Top Grounded Chunks with Source Citations
+                                ├──> WEAK_RETRY -> At Most One Alternate Bounded Retry
+                                └──> NO_KNOWLEDGE -> Deterministic Zero-Chunk Response
+```
 
 ## Core Phase 1 models
 
@@ -40,7 +68,7 @@ Detailed decisions are recorded in `docs/decisions.md`.
 
 - **Durable app DB:** Supabase-hosted PostgreSQL via `DATABASE_URL`
 - **Disposable test DB:** Docker PostgreSQL + pgvector at `localhost:5432/medilab` via `TEST_DATABASE_URL`
-- **Embedding schema contract:** `intfloat/multilingual-e5-small`, `VECTOR(384)`
+- **Embedding schema contract:** `jina-embeddings-v3` via Jina AI, `VECTOR(384)`
 - **HOME visit:** separate one-to-one `home_visits` table
 - **Authoritative booking slot:** `Booking.availability_slot_id`
 - **HOME/BRANCH slot uniqueness:** PostgreSQL partial unique indexes
@@ -136,7 +164,7 @@ The current fictional seed baseline is:
 - 3 packages
 - 4 Cairo branches
 - 209 availability slots covering 15–25 September 2026
-- 4 non-clinical knowledge documents with `index_status='PENDING'`
+- 7 canonical PDF-backed knowledge document records from `knowledge/knowledge_manifest.json` (bootstrapped as `PENDING` before PDF ingestion)
 
 Running the seed twice is verified to keep the same entity counts without duplicate rows.
 
@@ -155,6 +183,69 @@ The verification script checks the configured database for:
 - active snapshot-integrity trigger
 - strengthened HOME booking constraint
 - seed counts
+
+## Phase 2 RAG Core commands
+
+### 1. Live Jina Embeddings API verification
+Verify live Jina AI Embeddings API call (English query & Arabic passage @ 384 dimensions):
+
+```bash
+uv run python scripts/verify_embeddings.py
+```
+
+### 2. PDF Knowledge Corpus Ingestion CLI
+Ingest realistic MediLab PDF knowledge corpus (`knowledge/pdfs/`) using `knowledge_manifest.json`:
+
+```bash
+# Ingest all manifest PDFs (with SHA-256 change detection & idempotency)
+uv run python scripts/ingest_knowledge_pdfs.py --all
+
+# Dry-run inspection without persisting chunks or generating embeddings
+uv run python scripts/ingest_knowledge_pdfs.py --all --dry-run
+
+# Ingest a single PDF file
+uv run python scripts/ingest_knowledge_pdfs.py --file knowledge/pdfs/01_Patient_Test_Preparation_and_Specimen_Collection_Guide.pdf
+
+# Force re-indexing of all documents (increments document version atomically)
+uv run python scripts/ingest_knowledge_pdfs.py --all --force
+```
+
+### 3. Knowledge base re-indexing & synchronization
+Canonical PDF-backed documents are always routed back through the PDF ingestion pipeline so section/page provenance cannot be destroyed by the legacy plain-text chunker. The safe reindex CLI handles this routing automatically:
+
+```bash
+uv run python scripts/reindex_knowledge.py --all
+```
+
+Reindex a specific document by ID or retry failed documents:
+
+```bash
+uv run python scripts/reindex_knowledge.py --document-id 1
+uv run python scripts/reindex_knowledge.py --failed
+```
+
+For a direct canonical corpus refresh, this is also valid:
+
+```bash
+uv run python scripts/ingest_knowledge_pdfs.py --all --force
+```
+
+`--dry-run` is strictly read-only and does not require a Jina API key.
+
+### 4. Interactive RAG retrieval verification
+Run benchmark queries (Arabic, English, preparation, complaints, privacy, and unsupported queries) against the indexed PDF knowledge base:
+
+```bash
+uv run python scripts/verify_rag.py
+```
+
+### 5. RAG evaluation benchmark
+Run the evaluation suite across 28 bilingual cases (19 calibration, 9 post-calibration validation) to measure Recall@4, MRR, No-Answer accuracy, Section Recall@4, and latencies:
+
+```bash
+uv run python scripts/eval_rag.py
+```
+Outputs the detailed evaluation report to `docs/evaluation/phase2_rag_eval.md`.
 
 ## Business-service behavior
 
@@ -181,41 +272,65 @@ Cancellation locks the booking row before status evaluation and locks the author
 
 ## Tests
 
-Fast unit tests:
+Fast unit tests (including PDF parser, structure chunking, and ingestion lifecycle):
 
 ```bash
 uv run pytest tests/unit
 ```
 
-Verified result on the Phase 1 QA commit:
-
 ```text
-43 passed
+126 passed in 2.60s
 ```
 
-Real PostgreSQL integration tests:
+Real PostgreSQL integration tests (including vector storage, FTS triggers, RRF, PDF ingestion, and safe reindexing):
 
 ```powershell
-$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab"
+$env:TEST_DATABASE_URL = "postgresql+psycopg://postgres:postgres@localhost:5432/medilab_test"
 uv run pytest -m postgres -v
 ```
 
-Verified result:
+Verified execution on code SHA `3fcd3f0516f51da844b6317b983a5c0e90fabd9e` (zero skips, disposable Docker PostgreSQL):
 
 ```text
-15 passed, 43 deselected
+27 passed, 126 deselected in 5.08s
 ```
 
-Full suite:
+Full test suite:
 
 ```bash
 uv run pytest
 ```
 
-Verified result:
+Verified execution on code SHA `3fcd3f0516f51da844b6317b983a5c0e90fabd9e`:
 
 ```text
-58 passed
+153 passed in 6.83s
+```
+
+## Phase 2 RAG Verification & Evaluation Scripts
+
+Live Jina AI embeddings verification:
+
+```bash
+uv run python scripts/verify_embeddings.py
+```
+
+PDF Knowledge Ingestion:
+
+```bash
+uv run python scripts/ingest_knowledge_pdfs.py --all
+```
+
+End-to-end RAG verification (hybrid retrieval, Arabic queries, CRUD synchronization, no-knowledge boundary):
+
+```bash
+uv run python scripts/verify_rag.py
+```
+
+Rigorous RAG evaluation across calibration and validation sets:
+
+```bash
+uv run python scripts/eval_rag.py
 ```
 
 Quality gates:
@@ -229,7 +344,8 @@ Verified result:
 
 ```text
 All checks passed
-51 files already formatted
+
+Formatting count varies as the repository grows; use the command output from the current commit as the authoritative evidence.
 ```
 
 ## CI
@@ -241,11 +357,11 @@ All checks passed
 
 The Docker job explicitly injects an ephemeral local `DATABASE_URL` for the web container; it does not use Supabase in CI.
 
-At the time of Phase 1 QA, GitHub-hosted Actions runs are failing before any step is assigned (`steps=[]`, Docker job skipped). This is treated as an external runner/startup issue, not as passing CI evidence. Local Docker/PostgreSQL and Supabase verification are the current runtime evidence.
+GitHub-hosted Actions is still blocked before execution (`steps=[]`, `runner_id=0`; Docker/PostgreSQL job skipped). This is not an application failure and is not counted as a CI PASS. The current executable code tree at `3fcd3f0516f51da844b6317b983a5c0e90fabd9e` was independently verified locally with 126 unit tests, 27 PostgreSQL integration tests, 153 total tests, live Jina embeddings, live Supabase corpus/idempotency checks, 6/6 end-to-end RAG verification cases, and the 28-case benchmark. The final branch head differs from that executable code only by documentation commits.
 
 ## Healthcare boundary
 
-MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 1 seed knowledge is limited to approved customer-service/preparation/process information.
+MediLab AI is not clinical decision support. The project must not diagnose, interpret lab results clinically, prescribe/recommend medication, or recommend medically necessary tests from symptoms. Phase 2 knowledge is limited to approved customer-service/preparation/process information.
 
 ## Phase status semantics
 
@@ -253,8 +369,17 @@ MediLab AI is not clinical decision support. The project must not diagnose, inte
 - `TESTED`: automated evidence passes
 - `LIVE_VERIFIED`: real runtime/database evidence proves the behavior
 
-Phase 1 should only be marked complete after independent QA accepts the current PR/commit.
+Phase 2 is **TESTED** + **LIVE_VERIFIED** and is ready for independent signoff/merge.
 
 ## Next phase
 
-Phase 2 implements RAG independently of LangGraph: managed knowledge lifecycle, chunking/embeddings, pgvector + PostgreSQL FTS hybrid retrieval, RRF, retrieval grading, bounded retry, and CRUD synchronization.
+Phase 3 integrates this independently tested RAG service into the single LangGraph conversation orchestrator, including context loading, safety, intent understanding, clarification, routing, response composition, validation, and persisted multi-turn state.
+
+## PDF ingestion safety invariants
+
+- The seven manifest PDFs are the canonical source for PDF-backed RAG knowledge.
+- `seed_db.py` never overwrites already-ingested PDF content with bootstrap placeholder text.
+- A failed refresh of an existing `READY` PDF document preserves the last-known-good version and chunks; the sanitized failure is recorded in `index_error`.
+- The legacy plain-text indexer refuses PDF-managed chunks. Safe reindexing routes them through `PdfKnowledgeIngestionService`.
+- Single-file PDF ingestion must resolve manifest metadata; unknown files are rejected instead of silently defaulting to a generic category.
+- `--dry-run` performs parse/chunk validation only: no DB mutation, no version bump, no status change, and no embedding API call.

@@ -1,0 +1,114 @@
+[
+  {
+    "source_file": "01_Patient_Test_Preparation_and_Specimen_Collection_Guide.pdf",
+    "title": "Patient Test Preparation & Specimen Collection Guide",
+    "category": "Preparation",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  },
+  {
+    "source_file": "02_Home_Sample_Collection_Service_Policy.pdf",
+    "title": "Home Sample Collection Service Policy",
+    "category": "Services",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  },
+  {
+    "source_file": "03_Appointment_Booking_Rescheduling_and_Cancellation_Policy.pdf",
+    "title": "Appointment Booking, Rescheduling & Cancellation Policy",
+    "category": "Policies",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  },
+  {
+    "source_file": "04_Results_Delivery_Turnaround_and_Report_Access_Guide.pdf",
+    "title": "Results Delivery, Turnaround & Report Access Guide",
+    "category": "FAQ",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  },
+  {
+    "source_file": "05_Specimen_Acceptance_Recollection_and_Quality_Exceptions_Guide.pdf",
+    "title": "Specimen Acceptance, Recollection & Quality Exceptions Guide",
+    "category": "Processes",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  },
+  {
+    "source_file": "06_Patient_Identification_Privacy_and_Authorized_Access_Guide.pdf",
+    "title": "Patient Identification, Privacy & Authorized Access Guide",
+    "category": "Policies",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  },
+  {
+    "source_file": "07_Customer_Service_Complaints_Refunds_and_Escalation_Policy.pdf",
+    "title": "Customer Service, Complaints, Refunds & Escalation Policy",
+    "category": "Customer Service",
+    "version": 1,
+    "active": true,
+    "rag_use": true,
+    "sql_boundary": [
+      "price",
+      "availability",
+      "booking_status",
+      "booking_reference",
+      "live_branch_status",
+      "patient-specific state"
+    ]
+  }
+]
