@@ -2,12 +2,23 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from typing import Any
 
 from app.agent.state import MediLabAgentState
 from app.rag.service import RAGService
 from app.repositories.test_repository import TestRepository
+
+logger = logging.getLogger("medilab.agent.rag")
+
+
+def _controlled_rag_error(language: str) -> str:
+    return (
+        "عذراً، تعذر الوصول إلى قاعدة معلومات ميدي لاب حالياً. يرجى إعادة المحاولة بعد قليل."
+        if language == "ar"
+        else "I’m sorry, MediLab’s knowledge service is temporarily unavailable. Please try again shortly."
+    )
 
 
 def rag_node(state: MediLabAgentState) -> dict[str, Any]:
@@ -20,7 +31,6 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
     rag_service = RAGService()
     test_repo = TestRepository()
 
-    # Build context for query rewriting
     context: dict[str, Any] = {}
     selected_test_id = state.get("selected_test_id")
     selected_package_id = state.get("selected_package_id")
@@ -34,17 +44,16 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
     elif selected_package_id:
         from app.repositories.package_repository import PackageRepository
 
-        pkg_repo = PackageRepository()
-        pkg_obj = pkg_repo.get_by_id(selected_package_id)
-        if pkg_obj:
-            context["selected_package"] = pkg_obj.name
-            context["selected_package_name"] = pkg_obj.name
-            context["current_subject"] = pkg_obj.name
+        package_obj = PackageRepository().get_by_id(selected_package_id)
+        if package_obj:
+            context["selected_package"] = package_obj.name
+            context["selected_package_name"] = package_obj.name
+            context["current_subject"] = package_obj.name
     elif state.get("entities", {}).get("test_query"):
-        q_entity = str(state["entities"]["test_query"])
-        context["selected_test"] = q_entity
-        context["selected_test_name"] = q_entity
-        context["current_subject"] = q_entity
+        query_entity = str(state["entities"]["test_query"])
+        context["selected_test"] = query_entity
+        context["selected_test_name"] = query_entity
+        context["current_subject"] = query_entity
 
     query = state.get("normalized_user_message") or state.get("user_message", "")
 
@@ -52,15 +61,15 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
         retrieval = rag_service.retrieve(query=query, context=context)
         chunks_data = [
             {
-                "chunk_id": c.chunk_id,
-                "content": c.content,
-                "document_title": c.document_title,
-                "source_file": c.source_file,
-                "page_number": c.page_start,
-                "section_title": c.section_title,
-                "score": c.rrf_score,
+                "chunk_id": chunk.chunk_id,
+                "content": chunk.content,
+                "document_title": chunk.document_title,
+                "source_file": chunk.source_file,
+                "page_number": chunk.page_start,
+                "section_title": chunk.section_title,
+                "score": chunk.rrf_score,
             }
-            for c in retrieval.final_chunks
+            for chunk in retrieval.final_chunks
         ]
         rag_payload = {
             "outcome": retrieval.outcome,
@@ -69,12 +78,15 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
             "rewritten_query": retrieval.rewritten_query,
             "degraded_mode": retrieval.degraded_mode,
         }
-    except Exception as exc:
+    except Exception:
+        # Infrastructure/provider failure is not the same as an evidence-backed NO_KNOWLEDGE result.
+        # Do not persist raw exception text; underlying services own sanitized internal logging.
+        logger.error("RAG retrieval failed; returning controlled retrieval-unavailable state.")
         rag_payload = {
-            "outcome": "NO_KNOWLEDGE",
+            "outcome": "RETRIEVAL_ERROR",
             "chunks": [],
             "sources": [],
-            "error": str(exc),
+            "error_code": "retrieval_unavailable",
         }
 
     timings["rag_node"] = (time.perf_counter() - t_start) * 1000
@@ -87,5 +99,17 @@ def rag_node(state: MediLabAgentState) -> dict[str, Any]:
 
     if rag_payload.get("outcome") == "NO_KNOWLEDGE":
         result["response_goal"] = "NO_KNOWLEDGE"
+    elif rag_payload.get("outcome") == "RETRIEVAL_ERROR":
+        language = state.get("language", "en")
+        fallback = _controlled_rag_error(language)
+        result.update(
+            {
+                "response_goal": "CONTROLLED_ERROR",
+                "response_draft": fallback,
+                "final_response": fallback,
+                "controlled_errors": list(state.get("controlled_errors", []))
+                + ["RAG retrieval unavailable."],
+            }
+        )
 
     return result
