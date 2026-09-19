@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from datetime import date
 from typing import Any
 
 from app.agent.state import MediLabAgentState
@@ -20,6 +21,17 @@ def _controlled_structured_error(language: str) -> str:
         if language == "ar"
         else "I’m sorry, MediLab’s current service data is temporarily unavailable. Please try again shortly."
     )
+
+
+def _parse_iso_date(value: Any) -> date | None:
+    if not value:
+        return None
+    if isinstance(value, date):
+        return value
+    try:
+        return date.fromisoformat(str(value).strip())
+    except ValueError:
+        return None
 
 
 def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
@@ -111,6 +123,34 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
                 }
                 for branch in branches
             ]
+
+        if intent == "AVAILABILITY":
+            lookup_attempted = True
+            branch_id = entities.get("branch_id")
+            try:
+                resolved_branch_id = int(branch_id) if branch_id is not None else None
+            except (TypeError, ValueError):
+                resolved_branch_id = None
+            visit_type = entities.get("visit_type")
+            target_date = _parse_iso_date(entities.get("target_date"))
+            slots = branch_service.find_available_slots(
+                branch_id=resolved_branch_id,
+                visit_type=str(visit_type) if visit_type else None,
+                target_date=target_date,
+                active_only=True,
+            )
+            structured_facts["availability_slots"] = [
+                {
+                    "id": slot.id,
+                    "branch_id": slot.branch_id,
+                    "branch_name": slot.branch.name if slot.branch else None,
+                    "visit_type": slot.visit_type,
+                    "date": slot.date.isoformat(),
+                    "time": slot.time.strftime("%H:%M"),
+                    "remaining_capacity": slot.capacity - slot.reserved_count,
+                }
+                for slot in slots[:20]
+            ]
     except Exception:
         logger.error("Structured-data lookup failed; returning controlled unavailable state.")
         timings["structured_data_node"] = (time.perf_counter() - t_start) * 1000
@@ -136,8 +176,9 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
         "node_timings": timings,
     }
 
+    evidence_keys = {"test", "package", "packages", "branches", "availability_slots"}
     if lookup_attempted and not any(
-        value for key, value in structured_facts.items() if key in {"test", "package", "packages", "branches"}
+        value for key, value in structured_facts.items() if key in evidence_keys
     ):
         result["response_goal"] = "NO_KNOWLEDGE"
 
