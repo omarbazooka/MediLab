@@ -117,6 +117,10 @@ _FACT_ALIASES: dict[str, tuple[str, ...]] = {
         "support",
         "representative",
         "help desk",
+        "customer service desk",
+        "desk",
+        "team",
+        "staff",
     ),
     "branches": (
         "branches",

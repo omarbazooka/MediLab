@@ -125,3 +125,26 @@ def test_fact_grounding_non_business_semantic_aliases() -> None:
     )
     assert _fact_present("medical laboratory", response_38.lower())
     assert _fact_present("cannot help", response_38.lower())
+
+
+def test_action_boundary_instruction_in_gemini_provider() -> None:
+    provider = GeminiProvider(api_key="test-key")
+    # Check that the system instruction contains guidance for action boundaries
+    # without needing to make a live API call
+    from unittest.mock import MagicMock
+
+    provider._call_generate_content = MagicMock(return_value="Action not supported")
+    draft = provider.compose_response(
+        {
+            "response_goal": "ACTION_NOT_YET_EXECUTABLE",
+            "language": "en",
+        }
+    )
+    assert draft.response_goal.value == "ACTION_NOT_YET_EXECUTABLE"
+    # Verify the system_instruction passed to _call_generate_content
+    call_args = provider._call_generate_content.call_args
+    assert (
+        "explain that automated booking and cancellation actions are not yet supported"
+        in call_args.kwargs["system_instruction"]
+    )
+    assert "advise contacting customer service" in call_args.kwargs["system_instruction"]
