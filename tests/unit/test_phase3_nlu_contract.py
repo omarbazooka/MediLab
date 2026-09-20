@@ -112,8 +112,16 @@ def test_fact_grounding_non_business_semantic_aliases() -> None:
 
     # Greeting / capabilities: "branches", "tests"
     response_33 = (
-        "Hello! Welcome to MediLab. I can provide information about our laboratory tests, "
-        "pricing, and physical branch locations."
+        "Hello! I'm MediLab AI, your diagnostic-laboratory sales and customer-service assistant. "
+        "I can help you with information about our laboratory tests, packages, preparation guidelines, and services."
     )
     assert _fact_present("branches", response_33.lower())
     assert _fact_present("tests", response_33.lower())
+
+    # Out-of-domain: "medical laboratory", "cannot help"
+    response_38 = (
+        "No, MediLab AI is a diagnostic-laboratory assistant, so we do not repair smartphones "
+        "or laptop screens. We can help you with our laboratory tests and services!"
+    )
+    assert _fact_present("medical laboratory", response_38.lower())
+    assert _fact_present("cannot help", response_38.lower())
