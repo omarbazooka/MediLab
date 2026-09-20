@@ -1,0 +1,6 @@
+{% macro branch_card(branch, opening_hours) %}
+<article class="branch-card">
+  <div class="branch-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 21s7-5.1 7-12A7 7 0 1 0 5 9c0 6.9 7 12 7 12Zm0-9.2A2.8 2.8 0 1 1 12 6a2.8 2.8 0 0 1 0 5.8Z"/></svg></div>
+  <div class="branch-content"><div class="branch-heading"><h3>{{ branch.name }}</h3><span class="status-dot"><i></i> Active</span></div><p>{{ branch.address }}</p><dl class="branch-meta"><div><dt>Hours</dt><dd>{{ opening_hours(branch.opening_hours_json) }}</dd></div><div><dt>Phone</dt><dd><a href="tel:{{ branch.phone }}">{{ branch.phone }}</a></dd></div></dl><div class="card-actions"><a class="button button-secondary button-small" href="{{ url_for('customer.chat') }}?prompt={{ ('Show availability at ' ~ branch.name)|urlencode }}">Check availability</a><a class="button button-ghost button-small" href="{{ url_for('customer.chat') }}?prompt={{ ('Tell me about ' ~ branch.name)|urlencode }}">Ask AI</a></div></div>
+</article>
+{% endmacro %}

@@ -1,0 +1,7 @@
+{% macro chat_message(message) %}
+<article class="message message-{{ message.role }}" data-role="{{ message.role }}">
+  {% if message.role == 'assistant' %}<div class="assistant-avatar" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></div>{% endif %}
+  <div class="message-stack"><div class="message-bubble">{{ message.content }}</div>
+  {% if message.role == 'assistant' and message.metadata %}<div class="persisted-ui" data-metadata='{{ message.metadata|tojson|forceescape }}'></div>{% endif %}</div>
+</article>
+{% endmacro %}

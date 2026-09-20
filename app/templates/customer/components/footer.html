@@ -1,0 +1,14 @@
+<footer class="site-footer">
+  <div class="container footer-grid">
+    <div class="footer-brand">
+      <a class="brand brand-light" href="{{ url_for('customer.home') }}"><span class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></span><span>MediLab <strong>AI</strong></span></a>
+      <p>Clear, verified assistance for laboratory services and bookings.</p>
+    </div>
+    <div><h2>Explore</h2><a href="{{ url_for('customer.tests_catalog') }}">Lab tests</a><a href="{{ url_for('customer.packages_catalog') }}">Health packages</a><a href="{{ url_for('customer.branches') }}">Branches</a></div>
+    <div><h2>Support</h2><a href="{{ url_for('customer.chat') }}">AI assistant</a><a href="{{ url_for('customer.booking_status') }}">Booking status</a></div>
+  </div>
+  <div class="container footer-bottom">
+    <p>MediLab AI provides service and booking assistance, not medical advice, diagnosis, treatment, or lab-result interpretation.</p>
+    <p>© 2026 MediLab AI</p>
+  </div>
+</footer>

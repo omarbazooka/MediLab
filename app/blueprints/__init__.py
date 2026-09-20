@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from app.blueprints.customer import customer_bp
 from app.blueprints.health import health_bp
 
 if TYPE_CHECKING:
@@ -15,5 +16,6 @@ if TYPE_CHECKING:
 
 
 def register_blueprints(app: Flask) -> None:
-    """Register all Phase 0 HTTP blueprints."""
+    """Register application HTTP blueprints."""
     app.register_blueprint(health_bp)
+    app.register_blueprint(customer_bp)

@@ -76,6 +76,11 @@ def persist_context(state: MediLabAgentState) -> dict[str, Any]:
         "rag_sources": rag_metadata,
         "node_timings_ms": {key: round(value, 2) for key, value in timings.items()},
         "total_latency_ms": round(total_ms, 2),
+        # Phase 5 presentation metadata lets a refreshed customer chat rebuild the
+        # exact cards the customer originally saw. It is derived from the same
+        # agent result and active SearchSnapshot; no frontend business state is added.
+        "action_result": state.get("action_result"),
+        "visible_results": (state.get("active_search_snapshot") or {}).get("items", []),
     }
 
     repo.add_message(

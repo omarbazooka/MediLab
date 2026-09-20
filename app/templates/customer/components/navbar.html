@@ -1,0 +1,26 @@
+{% set current = request.endpoint or '' %}
+<header class="site-header">
+  <nav class="navbar container" aria-label="Primary navigation">
+    <a class="brand" href="{{ url_for('customer.home') }}" aria-label="MediLab AI home">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg>
+      </span>
+      <span>MediLab <strong>AI</strong></span>
+    </a>
+    <button class="nav-toggle" type="button" aria-expanded="false" aria-controls="primary-menu" aria-label="Open navigation">
+      <span></span><span></span><span></span>
+    </button>
+    <div class="nav-menu" id="primary-menu">
+      <div class="nav-links">
+        <a class="{{ 'active' if current == 'customer.home' }}" href="{{ url_for('customer.home') }}">Home</a>
+        <a class="{{ 'active' if current == 'customer.tests_catalog' }}" href="{{ url_for('customer.tests_catalog') }}">Tests</a>
+        <a class="{{ 'active' if current == 'customer.packages_catalog' }}" href="{{ url_for('customer.packages_catalog') }}">Packages</a>
+        <a class="{{ 'active' if current == 'customer.branches' }}" href="{{ url_for('customer.branches') }}">Branches</a>
+        <a class="{{ 'active' if current == 'customer.booking_status' }}" href="{{ url_for('customer.booking_status') }}">Booking status</a>
+      </div>
+      <a class="button button-primary nav-cta" href="{{ url_for('customer.chat') }}">
+        <span>Ask MediLab AI</span><span aria-hidden="true">→</span>
+      </a>
+    </div>
+  </nav>
+</header>

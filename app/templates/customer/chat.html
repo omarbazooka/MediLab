@@ -1,0 +1,25 @@
+{% extends "customer/base.html" %}
+{% from "customer/components/chat_message.html" import chat_message %}
+{% block title %}AI Assistant — MediLab AI{% endblock %}
+{% block body_class %}chat-page{% endblock %}
+{% block footer %}{% endblock %}
+{% block content %}
+<div class="chat-shell">
+  <aside class="chat-rail" aria-label="Assistant capabilities">
+    <div><span class="section-kicker">MediLab AI</span><h2>How can I help?</h2><p>Ask about active services or manage a booking in one conversation.</p></div>
+    <nav aria-label="Suggested topics"><button type="button" data-chat-prompt="Help me find a lab test"><span>⌕</span> Find a lab test</button><button type="button" data-chat-prompt="Show me your health packages"><span>▤</span> Browse packages</button><button type="button" data-chat-prompt="I want to book a branch visit"><span>⌖</span> Branch visit</button><button type="button" data-chat-prompt="I want to book a home visit"><span>⌂</span> Home visit</button><button type="button" data-chat-prompt="I want to check my booking status"><span>✓</span> Booking status</button></nav>
+    <div class="rail-note"><span>i</span><p>For diagnosis or interpretation, please consult a qualified healthcare professional.</p></div>
+  </aside>
+  <section class="chat-panel" aria-label="Conversation with MediLab AI">
+    <header class="chat-header"><div class="assistant-identity"><div class="assistant-avatar"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></div><div><h1>MediLab AI Assistant</h1><p><i></i> Lab services & booking assistant</p></div></div><button class="icon-button" type="button" aria-label="About MediLab AI" title="Service and booking assistance only">i</button></header>
+    <div class="messages" id="chat-messages" aria-live="polite" aria-busy="false">
+      {% if messages %}{% for message in messages %}{{ chat_message(message) }}{% endfor %}{% else %}
+      <div class="welcome-state" id="welcome-state"><div class="welcome-mark"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></div><span class="section-kicker">Your lab-service guide</span><h2>What can I help you with today?</h2><p>I can help you explore verified tests and packages, understand preparation information, and manage branch or home-visit bookings.</p><div class="quick-actions"><button type="button" data-chat-prompt="Help me find a lab test"><span>⌕</span><strong>Find a lab test</strong><small>Search by service or code</small></button><button type="button" data-chat-prompt="Show me your health packages"><span>▤</span><strong>Browse packages</strong><small>Compare included services</small></button><button type="button" data-chat-prompt="What preparation instructions should I know?"><span>◷</span><strong>Preparation instructions</strong><small>Ask about a specific test</small></button><button type="button" data-chat-prompt="I want to book a home visit"><span>⌂</span><strong>Book a home visit</strong><small>Use real available slots</small></button><button type="button" data-chat-prompt="I want to book a branch visit"><span>⌖</span><strong>Book a branch visit</strong><small>Choose a verified location</small></button><button type="button" data-chat-prompt="I want to check my booking status"><span>✓</span><strong>Check my booking</strong><small>Use your booking reference</small></button></div></div>
+      {% endif %}
+    </div>
+    <div class="chat-composer-wrap"><div class="chat-error" id="chat-error" role="alert" hidden><span>!</span><p></p><button type="button" id="retry-message">Retry</button></div><form class="chat-composer" id="chat-form"><label class="sr-only" for="chat-input">Message MediLab AI</label><textarea id="chat-input" name="message" rows="1" maxlength="1000" placeholder="Ask about tests, prices, preparation, branches or bookings..." required></textarea><button class="send-button" type="submit" aria-label="Send message" disabled><svg viewBox="0 0 24 24"><path d="m4 4 17 8-17 8 3-8-3-8Zm3.7 7h7.8L7 7l.7 4Zm0 2L7 17l8.5-4H7.7Z"/></svg><span class="spinner" aria-hidden="true"></span></button></form><p class="composer-disclaimer">Service information only — not medical diagnosis or result interpretation.</p></div>
+  </section>
+</div>
+<template id="typing-template"><article class="message message-assistant typing-message"><div class="assistant-avatar"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></div><div class="message-bubble typing-dots" aria-label="MediLab AI is typing"><i></i><i></i><i></i></div></article></template>
+{% endblock %}
+{% block scripts %}<script src="{{ url_for('static', filename='js/chat.js') }}" defer></script>{% endblock %}

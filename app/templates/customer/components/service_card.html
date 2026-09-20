@@ -1,0 +1,11 @@
+{% macro service_card(test) %}
+<article class="service-card">
+  <div class="card-topline"><span class="eyebrow-chip">Lab test</span><span class="test-code">{{ test.code }}</span></div>
+  <div><h3>{{ test.name }}</h3><p class="card-description">{{ test.short_description }}</p></div>
+  <dl class="service-meta">
+    <div><dt>Sample</dt><dd>{{ test.sample_type }}</dd></div>
+    <div><dt>Results</dt><dd>{{ test.result_turnaround_text }}</dd></div>
+  </dl>
+  <div class="card-footer"><div><span class="price-label">From</span><strong class="price">{{ '%.2f'|format(test.price) }} <small>EGP</small></strong></div><div class="card-actions"><a class="button button-ghost button-small" href="{{ url_for('customer.chat') }}?prompt={{ ('Tell me about ' ~ test.name)|urlencode }}">Ask AI</a><a class="button button-secondary button-small" href="{{ url_for('customer.chat') }}?prompt={{ ('I want to book ' ~ test.name)|urlencode }}">Book</a></div></div>
+</article>
+{% endmacro %}

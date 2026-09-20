@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="description" content="MediLab AI helps customers explore verified lab services, prices, branches, and bookings.">
+  <title>{% block title %}MediLab AI{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/customer.css') }}">
+  {% block head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  {% include "customer/components/navbar.html" %}
+  <main id="main-content">{% block content %}{% endblock %}</main>
+  {% block footer %}{% include "customer/components/footer.html" %}{% endblock %}
+  <script src="{{ url_for('static', filename='js/customer.js') }}" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

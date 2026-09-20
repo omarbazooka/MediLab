@@ -1,0 +1,45 @@
+{% extends "customer/base.html" %}
+{% from "customer/components/service_card.html" import service_card %}
+{% from "customer/components/package_card.html" import package_card %}
+{% from "customer/components/branch_card.html" import branch_card %}
+{% from "customer/components/alert.html" import alert %}
+{% block title %}MediLab AI — Lab services made simpler{% endblock %}
+{% block content %}
+<section class="hero">
+  <div class="container hero-grid">
+    <div class="hero-copy">
+      <span class="trust-badge"><i aria-hidden="true"></i> AI-powered lab assistance</span>
+      <h1>Lab services,<br><em>made simpler.</em></h1>
+      <p class="hero-lead">Find tests and packages, understand preparation instructions, compare services, and book branch or home visits with verified MediLab data.</p>
+      <div class="hero-actions"><a class="button button-primary button-large" href="{{ url_for('customer.chat') }}">Ask MediLab AI <span aria-hidden="true">→</span></a><a class="button button-outline button-large" href="{{ url_for('customer.tests_catalog') }}">Explore lab tests</a></div>
+      <p class="microcopy"><span aria-hidden="true">✓</span> Prices, availability, and bookings come from verified MediLab data.</p>
+    </div>
+    <div class="assistant-preview" aria-label="Example MediLab AI conversation">
+      <div class="preview-orb preview-orb-one"></div><div class="preview-orb preview-orb-two"></div>
+      <div class="preview-window">
+        <div class="preview-header"><div class="assistant-avatar"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></div><div><strong>MediLab AI</strong><span><i></i> Ready to help</span></div><button type="button" aria-label="More information">•••</button></div>
+        <div class="preview-body"><div class="preview-bubble assistant">Hi! I can help you find the right lab service and arrange your visit.</div><div class="preview-bubble customer">I need a routine health check.</div><div class="preview-result"><span class="eyebrow-chip eyebrow-chip-blue">Suggested package</span><strong>Compare verified packages</strong><p>View included tests, preparation, and current pricing.</p><a href="{{ url_for('customer.packages_catalog') }}">Explore packages <span>→</span></a></div><div class="preview-bubble assistant compact">Would you prefer a branch visit or home collection?</div></div>
+        <div class="preview-composer"><span>Ask about a lab service…</span><i aria-hidden="true">↑</i></div>
+      </div>
+      <div class="preview-float"><span aria-hidden="true">✓</span><div><strong>Booking support</strong><small>Branch & home visits</small></div></div>
+    </div>
+  </div>
+</section>
+<section class="trust-strip" aria-label="MediLab service benefits"><div class="container trust-grid"><div><span>✓</span>Verified service information</div><div><span>⌁</span>Transparent pricing</div><div><span>⌂</span>Branch & home visits</div><div><span>✦</span>AI-assisted support</div></div></section>
+
+<section class="section container" id="services">
+  <div class="section-heading"><div><span class="section-kicker">Popular services</span><h2>A clearer way to choose your care</h2><p>Explore active services from the MediLab catalog. Need help comparing? Ask the assistant.</p></div><a class="text-link" href="{{ url_for('customer.tests_catalog') }}">View all tests <span>→</span></a></div>
+  {% if data_error %}{{ alert('error', 'Services temporarily unavailable', 'Please refresh shortly or ask the assistant for help.') }}{% endif %}
+  <div class="card-grid">{% for test in popular_tests %}{{ service_card(test) }}{% endfor %}</div>
+  {% if popular_packages %}<div class="package-grid home-packages">{% for package in popular_packages %}{{ package_card(package) }}{% endfor %}</div>{% endif %}
+  {% if not popular_tests and not popular_packages and not data_error %}<div class="empty-state"><span>⌕</span><h3>No services are available yet</h3><p>Please check again later.</p></div>{% endif %}
+</section>
+
+<section class="section section-tint"><div class="container"><div class="center-heading"><span class="section-kicker">Simple from start to finish</span><h2>How MediLab works</h2></div><div class="steps"><article><span>01</span><div class="step-icon">⌕</div><h3>Ask or search</h3><p>Tell us what service or information you need.</p></article><i aria-hidden="true">→</i><article><span>02</span><div class="step-icon">▤</div><h3>Choose a service</h3><p>Compare verified details, preparation, and pricing.</p></article><i aria-hidden="true">→</i><article><span>03</span><div class="step-icon">✓</div><h3>Book your visit</h3><p>Choose a real available branch or home visit slot.</p></article></div></div></section>
+
+<section class="section container"><div class="ai-feature"><div class="ai-feature-copy"><span class="section-kicker light">Your lab-service guide</span><h2>One assistant for every step</h2><p>MediLab AI can answer service questions and guide bookings without sending you from page to page.</p><div class="feature-list"><span>Find tests & packages</span><span>Check preparation</span><span>Compare prices</span><span>Find branches</span><span>Book appointments</span><span>Check or cancel bookings</span></div><a class="button button-white" href="{{ url_for('customer.chat') }}">Start a conversation <span>→</span></a><small>Service and booking assistance only. For medical advice, consult a qualified healthcare professional.</small></div><div class="ai-feature-dialog"><div class="dialog-line"><span>“</span><p>Can I book a home visit for a thyroid test?</p></div><div class="dialog-answer"><div class="assistant-avatar"><svg viewBox="0 0 24 24"><path d="M9 3h6v6h6v6h-6v6H9v-6H3V9h6V3Z"/></svg></div><div><strong>Absolutely — I can help.</strong><p>I’ll check the active catalog and real home-visit availability, then ask for the details needed to book.</p></div></div></div></div></section>
+
+<section class="container home-banner"><div><span class="home-icon" aria-hidden="true">⌂</span><div><span class="section-kicker">Comfort at your doorstep</span><h2>Prefer testing at home?</h2><p>Let the assistant find an available collection time and guide your booking.</p></div></div><a class="button button-primary button-large" href="{{ url_for('customer.chat') }}?prompt=I%20want%20to%20book%20a%20home%20visit">Book a home visit <span>→</span></a></section>
+
+<section class="section container"><div class="section-heading"><div><span class="section-kicker">Near you</span><h2>Visit a MediLab branch</h2><p>View verified locations, contact details, and opening hours.</p></div><a class="text-link" href="{{ url_for('customer.branches') }}">View all branches <span>→</span></a></div><div class="branch-grid">{% for branch in branches %}{{ branch_card(branch, opening_hours) }}{% endfor %}</div></section>
+{% endblock %}

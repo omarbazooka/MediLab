@@ -1,0 +1,6 @@
+{% macro alert(kind, title, message) %}
+<div class="alert alert-{{ kind }}" role="{{ 'alert' if kind == 'error' else 'status' }}">
+  <span class="alert-icon" aria-hidden="true">{{ '!' if kind == 'error' else 'i' }}</span>
+  <div><strong>{{ title }}</strong><p>{{ message }}</p></div>
+</div>
+{% endmacro %}

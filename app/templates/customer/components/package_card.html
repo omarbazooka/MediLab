@@ -1,0 +1,8 @@
+{% macro package_card(package) %}
+<article class="package-card">
+  <div class="package-accent"><span class="eyebrow-chip eyebrow-chip-blue">Health package</span><span>{{ package.tests|length }} tests</span></div>
+  <h3>{{ package.name }}</h3><p class="card-description">{{ package.description }}</p>
+  {% if package.tests %}<div class="included-tests"><span>Includes</span><p>{% for test in package.tests[:3] %}{{ test.name }}{% if not loop.last %} · {% endif %}{% endfor %}{% if package.tests|length > 3 %} +{{ package.tests|length - 3 }} more{% endif %}</p></div>{% endif %}
+  <div class="card-footer"><strong class="price">{{ '%.2f'|format(package.price) }} <small>EGP</small></strong><div class="card-actions"><a class="button button-ghost button-small" href="{{ url_for('customer.chat') }}?prompt={{ ('Tell me about the ' ~ package.name ~ ' package')|urlencode }}">Ask AI</a><a class="button button-secondary button-small" href="{{ url_for('customer.chat') }}?prompt={{ ('Book the ' ~ package.name ~ ' package')|urlencode }}">Book</a></div></div>
+</article>
+{% endmacro %}
