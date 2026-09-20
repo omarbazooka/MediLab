@@ -5,8 +5,7 @@
 - **Phase 1 (Foundation, Schema, Seed Data, Repositories):** COMPLETED & VERIFIED.
 - **Phase 2 (Hybrid RAG, Chunking, Ingestion, Reindexing):** COMPLETED & VERIFIED.
 - **Phase 3 (LangGraph Core Orchestrator, Multi-Source Routing, Context Hydration, Safety Gates):**
-  - Status: COMPLETED & FROZEN.
-  - Frozen clean SHA: `c24654c5874ecb33f0d9b724510616ceb59ad315`.
+  - Status: BLOCKED: final Real Gemini live verification pending due provider daily quota exhaustion. (Frozen at `c24654c5874ecb33f0d9b724510616ceb59ad315`).
   - PR #4: OPEN / UNMERGED.
 - **Phase 4 (Business Action Subgraph & Realistic Booking Availability):** IN PROGRESS.
   - Branch: `feat/phase4-business-actions` (stacked from Phase 3 HEAD).
