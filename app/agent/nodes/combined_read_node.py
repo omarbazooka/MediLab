@@ -17,7 +17,9 @@ def combined_read_node(state: MediLabAgentState) -> dict[str, Any]:
     routes = list(state.get("route_trace", []))
     routes.append("combined_read_node")
 
-    struct_res = structured_data_node(state)
+    working: MediLabAgentState = {**state, "route_trace": routes}
+    struct_res = structured_data_node(working)
+    routes = list(struct_res.get("route_trace", routes))
     if struct_res.get("response_goal") == "CONTROLLED_ERROR":
         timings["combined_read_node"] = (time.perf_counter() - t_start) * 1000
         return {
@@ -26,8 +28,9 @@ def combined_read_node(state: MediLabAgentState) -> dict[str, Any]:
             "node_timings": timings,
         }
 
-    merged_state: MediLabAgentState = {**state, **struct_res}
+    merged_state: MediLabAgentState = {**state, **struct_res, "route_trace": routes}
     rag_res = rag_node(merged_state)
+    routes = list(rag_res.get("route_trace", routes))
 
     timings["combined_read_node"] = (time.perf_counter() - t_start) * 1000
 

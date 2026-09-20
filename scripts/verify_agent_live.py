@@ -239,7 +239,10 @@ def run_verification(use_real_llm: bool = False) -> int:
             pace_if_real("Turn 3: structured data")
             turn3 = agent.run_turn(session_id, "What is it and how much does it cost?")
             print(f"Turn 3: {turn3.get('response')}")
-            if "structured_data_node" not in turn3.get("route_trace", []):
+            if not any(
+                node in turn3.get("route_trace", [])
+                for node in ("structured_data_node", "combined_read_node")
+            ):
                 failures.append("Turn 3 did not use authoritative structured data.")
 
             pace_if_real("Turn 4: RAG preparation")

@@ -193,3 +193,33 @@ def test_normalize_out_of_domain_clears_ambiguities_when_not_clarifying() -> Non
     }
     normalized = GeminiProvider._normalize_request_plan_payload(payload)
     assert normalized["ambiguities"] == []
+
+
+def test_combined_read_node_propagates_subnode_routes() -> None:
+    from unittest.mock import patch
+
+    from app.agent.nodes.combined_read_node import combined_read_node
+
+    dummy_state: MediLabAgentState = {
+        "is_safe": True,
+        "route_trace": ["router_node"],
+        "node_timings": {},
+    }
+    with (
+        patch("app.agent.nodes.combined_read_node.structured_data_node") as mock_struct,
+        patch("app.agent.nodes.combined_read_node.rag_node") as mock_rag,
+    ):
+        mock_struct.side_effect = lambda s: {
+            "structured_result": {"price": 250},
+            "route_trace": list(s.get("route_trace", [])) + ["structured_data_node"],
+            "node_timings": {"structured_data_node": 10.0},
+        }
+        mock_rag.side_effect = lambda s: {
+            "rag_result": {"context": "fasting guide"},
+            "route_trace": list(s.get("route_trace", [])) + ["rag_node"],
+            "node_timings": {"rag_node": 15.0},
+        }
+        res = combined_read_node(dummy_state)
+        assert "combined_read_node" in res["route_trace"]
+        assert "structured_data_node" in res["route_trace"]
+        assert "rag_node" in res["route_trace"]
