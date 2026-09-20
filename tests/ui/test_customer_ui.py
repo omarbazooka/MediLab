@@ -212,6 +212,15 @@ def test_required_accessible_chat_controls_exist(client):
     assert b"Shift+Enter" not in page  # behavior is implemented without cluttering the UI
 
 
+def test_chat_message_region_has_explicit_visible_scrolling(client):
+    page = client.get("/chat")
+    stylesheet = client.get("/static/css/customer.css")
+    assert b'class="chat-page"' in page.data
+    assert b"overflow-y: scroll" in stylesheet.data
+    assert b"scrollbar-gutter: stable" in stylesheet.data
+    assert b"touch-action: pan-y" in stylesheet.data
+
+
 def test_booking_status_uses_agent_endpoint_not_direct_mutation(client):
     page = client.get("/booking-status").data
     assert b'id="status-form"' in page
