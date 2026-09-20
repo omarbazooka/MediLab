@@ -11,7 +11,6 @@ Covers criteria 30-35:
 
 from __future__ import annotations
 
-from datetime import date, timedelta
 from decimal import Decimal
 
 import pytest
@@ -20,6 +19,7 @@ from flask import Flask
 from app.agent.graph import MediLabAgent
 from app.agent.llm.factory import set_override_llm_provider
 from app.agent.llm.fake import FakeLLMProvider
+from app.agent.pending_action import parse_date_and_time
 from app.extensions import db
 from app.models.booking import Booking
 from app.models.branch import AvailabilitySlot, Branch
@@ -59,8 +59,10 @@ def conversation_catalog(app: Flask):
         db.session.add(branch_nasr)
         db.session.flush()
 
-        # Slot tomorrow at 16:00
-        target_date = date.today() + timedelta(days=1)
+        # Keep the seeded slot aligned with the agent's canonical interpretation
+        # of the relative phrase used by these deterministic evaluation flows.
+        target_date, _ = parse_date_and_time("tomorrow", {})
+        assert target_date is not None
         from datetime import time
 
         slot_1600 = AvailabilitySlot(
