@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from app.agent.schemas import AgentIntent
 from app.agent.state import MediLabAgentState
 from app.repositories.package_repository import PackageRepository
 from app.repositories.test_repository import TestRepository
@@ -17,6 +18,13 @@ def uncertainty_gate(state: MediLabAgentState) -> str:
 
     if state.get("needs_clarification", False) or state.get("pending_clarification"):
         return "uncertain"
+
+    intent = state.get("intent") or ""
+    if intent in {
+        AgentIntent.UNKNOWN_AMBIGUOUS.value,
+        AgentIntent.GENERAL_CONVERSATION.value,
+    } and not state.get("needs_clarification", False):
+        return "clear"
 
     if (
         state.get("ambiguities")

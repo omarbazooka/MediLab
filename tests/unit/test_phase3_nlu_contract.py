@@ -148,3 +148,45 @@ def test_action_boundary_instruction_in_gemini_provider() -> None:
         in call_args.kwargs["system_instruction"]
     )
     assert "advise contacting customer service" in call_args.kwargs["system_instruction"]
+
+
+def test_gemini_provider_parse_json_payload_robustness() -> None:
+    # 1. Markdown code fences
+    fenced = '```json\n{"primary_intent": "TEST_PRICE"}\n```'
+    assert GeminiProvider._parse_json_payload(fenced)["primary_intent"] == "TEST_PRICE"
+
+    # 2. Single-quoted keys and trailing commas
+    malformed = (
+        "{\n  'primary_intent': 'BOOK_BRANCH_VISIT',\n  'action_intent': 'BOOK_BRANCH_VISIT',\n}"
+    )
+    res = GeminiProvider._parse_json_payload(malformed)
+    assert res["primary_intent"] == "BOOK_BRANCH_VISIT"
+    assert res["action_intent"] == "BOOK_BRANCH_VISIT"
+
+    # 3. Text preamble / postscript surrounding JSON
+    surrounded = 'Here is the plan:\n{"primary_intent": "TEST_DETAILS"}\nHope this helps!'
+    assert GeminiProvider._parse_json_payload(surrounded)["primary_intent"] == "TEST_DETAILS"
+
+
+def test_uncertainty_gate_passes_clear_for_out_of_domain() -> None:
+    from app.agent.nodes.uncertainty_gate import uncertainty_gate
+
+    state: MediLabAgentState = {
+        "is_safe": True,
+        "intent": AgentIntent.UNKNOWN_AMBIGUOUS.value,
+        "needs_clarification": False,
+        "ambiguities": ["User asked about laptop repairs."],
+        "selected_test_id": None,
+        "selected_package_id": None,
+    }
+    assert uncertainty_gate(state) == "clear"
+
+
+def test_normalize_out_of_domain_clears_ambiguities_when_not_clarifying() -> None:
+    payload = {
+        "primary_intent": "UNKNOWN_AMBIGUOUS",
+        "needs_clarification": False,
+        "ambiguities": ["User asked about repairing phone screens."],
+    }
+    normalized = GeminiProvider._normalize_request_plan_payload(payload)
+    assert normalized["ambiguities"] == []

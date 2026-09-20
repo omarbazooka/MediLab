@@ -170,7 +170,59 @@ class GeminiProvider:
                 "mixed-language": "mixed",
             }.get(language_key, language_key or "en")
 
+        if normalized.get("primary_intent") in {
+            AgentIntent.UNKNOWN_AMBIGUOUS,
+            AgentIntent.UNKNOWN_AMBIGUOUS.value,
+            "UNKNOWN_AMBIGUOUS",
+        } and not normalized.get("needs_clarification", False):
+            normalized["ambiguities"] = []
+
         return normalized
+
+    @staticmethod
+    def _parse_json_payload(raw: str) -> dict[str, Any]:
+        """Parse JSON response from model with robust cleanup for fences, quotes, and commas."""
+        text = raw.strip()
+        if text.startswith("```"):
+            lines = text.splitlines()
+            if lines and lines[0].startswith("```"):
+                lines = lines[1:]
+            if lines and lines[-1].strip().startswith("```"):
+                lines = lines[:-1]
+            text = "\n".join(lines).strip()
+
+        try:
+            return json.loads(text)
+        except json.JSONDecodeError:
+            pass
+
+        match = re.search(r"(\{.*\})", text, re.DOTALL)
+        if match:
+            text = match.group(1).strip()
+            try:
+                return json.loads(text)
+            except json.JSONDecodeError:
+                pass
+
+        cleaned = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', text)
+        cleaned = re.sub(r"([{,]\s*)'([A-Za-z_][A-Za-z0-9_]*)'\s*:", r'\1"\2":', cleaned)
+        cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
+
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            import ast
+
+            val = ast.literal_eval(text)
+            if isinstance(val, dict):
+                return val
+        except Exception:
+            pass
+
+        return json.loads(text)
 
     def _call_generate_content(
         self,
@@ -273,7 +325,7 @@ class GeminiProvider:
             raw = self._call_generate_content(
                 contents, system_instruction=system_instruction, json_mode=True, temperature=0.0
             )
-            return SafetyClassification(**json.loads(raw))
+            return SafetyClassification(**self._parse_json_payload(raw))
         except Exception as exc:
             logger.error(
                 "Gemini safety classification failed: %s",
@@ -347,7 +399,7 @@ class GeminiProvider:
             raw = self._call_generate_content(
                 contents, system_instruction=system_instruction, json_mode=True, temperature=0.0
             )
-            payload = self._normalize_request_plan_payload(json.loads(raw))
+            payload = self._normalize_request_plan_payload(self._parse_json_payload(raw))
             return RequestPlan(**payload)
         except Exception as exc:
             logger.error(
