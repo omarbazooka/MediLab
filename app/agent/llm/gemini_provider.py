@@ -181,9 +181,12 @@ class GeminiProvider:
 
     @staticmethod
     def _parse_json_payload(raw: str) -> dict[str, Any]:
-        """Parse JSON response from model with robust cleanup for fences, quotes, and commas."""
+        """Parse JSON response from model with robust cleanup for fences, quotes, comments, and commas."""
         text = raw.strip()
-        if text.startswith("```"):
+        fence_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, re.DOTALL)
+        if fence_match:
+            text = fence_match.group(1).strip()
+        elif text.startswith("```"):
             lines = text.splitlines()
             if lines and lines[0].startswith("```"):
                 lines = lines[1:]
@@ -196,8 +199,10 @@ class GeminiProvider:
         except json.JSONDecodeError:
             pass
 
-        # Strip line comments
-        text_no_comments = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
+        # Strip block comments /* ... */
+        text_no_comments = re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
+        # Strip line comments // (avoiding stripping https://)
+        text_no_comments = re.sub(r"(?<!:)//.*$", "", text_no_comments, flags=re.MULTILINE)
         try:
             return json.loads(text_no_comments)
         except json.JSONDecodeError:
@@ -211,11 +216,22 @@ class GeminiProvider:
         except json.JSONDecodeError:
             pass
 
+        # Clean trailing commas (loop to handle nested trailing commas)
+        prev = None
+        cleaned_candidate = candidate
+        while prev != cleaned_candidate:
+            prev = cleaned_candidate
+            cleaned_candidate = re.sub(r",\s*([\]}])", r"\1", cleaned_candidate)
+        try:
+            return json.loads(cleaned_candidate)
+        except json.JSONDecodeError:
+            pass
+
         # Python literal evaluation (handles single quotes, booleans, and trailing commas)
         try:
             import ast
 
-            py_text = re.sub(r"\btrue\b", "True", candidate)
+            py_text = re.sub(r"\btrue\b", "True", cleaned_candidate)
             py_text = re.sub(r"\bfalse\b", "False", py_text)
             py_text = re.sub(r"\bnull\b", "None", py_text)
             val = ast.literal_eval(py_text)
@@ -224,10 +240,9 @@ class GeminiProvider:
         except Exception:
             pass
 
-        # Clean unquoted and single-quoted keys and trailing commas
-        cleaned = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', candidate)
+        # Clean unquoted and single-quoted keys
+        cleaned = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', cleaned_candidate)
         cleaned = re.sub(r"([{,]\s*)'([A-Za-z_][A-Za-z0-9_]*)'\s*:", r'\1"\2":', cleaned)
-        cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
@@ -235,10 +250,63 @@ class GeminiProvider:
 
         # Also try replacing single-quoted values with double-quoted values
         cleaned_values = re.sub(r":\s*'([^']*)'", r': "\1"', cleaned)
+        cleaned_values = re.sub(
+            r"(\[[^\]]*\])",
+            lambda m: re.sub(r"'([^']*)'", r'"\1"', m.group(1)),
+            cleaned_values,
+        )
         try:
             return json.loads(cleaned_values)
         except json.JSONDecodeError:
             pass
+
+        # Fallback regex extraction if JSON syntax is completely broken
+        extracted: dict[str, Any] = {}
+        category_match = re.search(r'"category"\s*:\s*["\']?([A-Za-z0-9_]+)["\']?', raw)
+        if category_match:
+            extracted["category"] = category_match.group(1)
+            conf_match = re.search(r'"confidence"\s*:\s*([0-9.]+)', raw)
+            extracted["confidence"] = float(conf_match.group(1)) if conf_match else 0.95
+            reason_match = re.search(r'"reason"\s*:\s*["\']([^"\']+)["\']', raw)
+            extracted["reason"] = (
+                reason_match.group(1) if reason_match else "Extracted safety category"
+            )
+            return extracted
+
+        intent_match = re.search(r'"primary_intent"\s*:\s*["\']?([A-Za-z0-9_]+)["\']?', raw)
+        if intent_match:
+            extracted["primary_intent"] = intent_match.group(1)
+            action_match = re.search(r'"action_intent"\s*:\s*["\']?([A-Za-z0-9_]+)["\']?', raw)
+            if action_match:
+                extracted["action_intent"] = action_match.group(1)
+            lang_match = re.search(r'"language"\s*:\s*["\']?([a-z]+)["\']?', raw)
+            if lang_match:
+                extracted["language"] = lang_match.group(1)
+
+            for flag in [
+                "requires_structured_data",
+                "requires_rag",
+                "requires_customer_history",
+                "needs_clarification",
+            ]:
+                flag_match = re.search(rf'"{flag}"\s*:\s*(true|false|True|False)', raw)
+                if flag_match:
+                    extracted[flag] = flag_match.group(1).lower() == "true"
+
+            entities_match = re.search(r'"entities"\s*:\s*\{([^}]*)\}', raw)
+            if entities_match:
+                ent_block = entities_match.group(1)
+                entities_dict = {}
+                for k, v in re.findall(
+                    r'["\']?([A-Za-z0-9_]+)["\']?\s*:\s*["\']?([^,"\']+?)["\']?\s*(?:,|$)',
+                    ent_block,
+                ):
+                    if k and v:
+                        entities_dict[k] = v.strip()
+                if entities_dict:
+                    extracted["entities"] = entities_dict
+
+            return extracted
 
         return json.loads(text)
 
@@ -339,6 +407,7 @@ class GeminiProvider:
             f"Current user message: {user_message}"
         )
         contents = [{"parts": [{"text": prompt}]}]
+        raw = ""
         try:
             raw = self._call_generate_content(
                 contents, system_instruction=system_instruction, json_mode=True, temperature=0.0
@@ -346,8 +415,9 @@ class GeminiProvider:
             return SafetyClassification(**self._parse_json_payload(raw))
         except Exception as exc:
             logger.error(
-                "Gemini safety classification failed: %s",
+                "Gemini safety classification failed: %s; raw: %r",
                 self._sanitize_error_text(str(exc)),
+                raw[:300] if raw else "none",
             )
             return SafetyClassification(
                 category=SafetyCategory.OTHER_CLINICAL_UNSAFE,
@@ -413,6 +483,7 @@ class GeminiProvider:
             f"User message: {user_message}"
         )
         contents = [{"parts": [{"text": prompt}]}]
+        raw = ""
         try:
             raw = self._call_generate_content(
                 contents, system_instruction=system_instruction, json_mode=True, temperature=0.0
@@ -421,8 +492,9 @@ class GeminiProvider:
             return RequestPlan(**payload)
         except Exception as exc:
             logger.error(
-                "Gemini understand_request failed: %s",
+                "Gemini understand_request failed: %s; raw: %r",
                 self._sanitize_error_text(str(exc)),
+                raw[:300] if raw else "none",
             )
             return RequestPlan(
                 primary_intent=AgentIntent.UNKNOWN_AMBIGUOUS,

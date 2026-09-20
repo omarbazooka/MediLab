@@ -170,6 +170,37 @@ def test_gemini_provider_parse_json_payload_robustness() -> None:
     surrounded = 'Here is the plan:\n{"primary_intent": "TEST_DETAILS"}\nHope this helps!'
     assert GeminiProvider._parse_json_payload(surrounded)["primary_intent"] == "TEST_DETAILS"
 
+    # 4. Block comments and nested trailing commas
+    with_block_comment = (
+        '{\n  "primary_intent": "BOOK_BRANCH_VISIT",\n  /* notes */\n'
+        '  "entities": {\n    "test_query": "CBC",\n  },\n}'
+    )
+    res_comment = GeminiProvider._parse_json_payload(with_block_comment)
+    assert res_comment["primary_intent"] == "BOOK_BRANCH_VISIT"
+    assert res_comment["entities"]["test_query"] == "CBC"
+
+    # 5. Single-quoted array items
+    with_sq_array = (
+        '{\n  "primary_intent": "TEST_DETAILS",\n'
+        "  \"requested_information\": ['price', 'preparation']\n}"
+    )
+    res_array = GeminiProvider._parse_json_payload(with_sq_array)
+    assert res_array["primary_intent"] == "TEST_DETAILS"
+    assert res_array["requested_information"] == ["price", "preparation"]
+
+    # 6. Severely broken syntax with regex fallback extraction
+    broken = (
+        'Here is the response:\n{\n  "primary_intent": "BOOK_BRANCH_VISIT",\n'
+        '  "action_intent": "BOOK_BRANCH_VISIT",\n'
+        '  "entities": {"test_query": "CBC", "branch_query": "Nasr City"},\n'
+        '  "language": "ar"\n'
+        "  syntax error at end"
+    )
+    res_broken = GeminiProvider._parse_json_payload(broken)
+    assert res_broken["primary_intent"] == "BOOK_BRANCH_VISIT"
+    assert res_broken["action_intent"] == "BOOK_BRANCH_VISIT"
+    assert res_broken["entities"]["test_query"] == "CBC"
+
 
 def test_uncertainty_gate_passes_clear_for_out_of_domain() -> None:
     from app.agent.nodes.uncertainty_gate import uncertainty_gate
