@@ -476,8 +476,8 @@ def test_home_booking_integration_and_constraint(postgres_app) -> None:
         db.session.flush()
 
         day = (int(suffix, 16) % 25) + 1
-        hour = (int(suffix, 16) % 12) + 8
-        minute = (int(suffix, 16) % 4) * 15
+        hour = (int(suffix, 16) % 10) + 9
+        minute = (int(suffix, 16) % 2) * 30
         slot = AvailabilitySlot(
             branch_id=None,
             visit_type="HOME",

@@ -15,6 +15,7 @@ from app.models.booking import Booking, BookingItem
 from app.models.branch import AvailabilitySlot, Branch
 from app.models.conversation import ChatMessage, ConversationSession
 from app.models.customer import Customer
+from app.models.home_visit import HomeVisit
 from app.models.package import Package, PackageTest
 from app.models.snapshot import SearchSnapshot
 from app.models.test import LabTest, TestCategory
@@ -31,6 +32,7 @@ def clean_graph_db(postgres_app: Flask):
         db.session.execute(SearchSnapshot.__table__.delete())
         db.session.execute(ConversationSession.__table__.delete())
         db.session.execute(BookingItem.__table__.delete())
+        db.session.execute(HomeVisit.__table__.delete())
         db.session.execute(Booking.__table__.delete())
         db.session.execute(AvailabilitySlot.__table__.delete())
         db.session.execute(Branch.__table__.delete())
@@ -181,14 +183,57 @@ def test_graph_flow_6_clinical_safety_boundary(clean_graph_db: Flask) -> None:
 
 
 def test_graph_flow_7_action_boundary_no_fake_booking(clean_graph_db: Flask) -> None:
-    """Flow 7: 'Please book me a home visit for tomorrow.' -> Action boundary without fake booking claim."""
+    """Flow 7: 'Please book me a home visit for tomorrow.' -> Action boundary routes to business actions.
+
+    Phase 4 requirements:
+    - Routes to action_boundary_node
+    - Creates and persists pending_action in state and database session
+    - Status is NEEDS_DATA because required fields (address/area/test) are missing
+    - Asks only for missing information
+    - ZERO Booking/HomeVisit rows created before explicit confirmation
+    - No fake booking claim made
+    """
     with clean_graph_db.app_context():
         set_override_llm_provider(FakeLLMProvider())
         agent = MediLabAgent()
 
         result = agent.run_turn("sess-f7", "Please book me a home visit for tomorrow.")
 
+        # 1. Safety and routing invariants
         assert result["is_safe"] is True
-        assert result["response_goal"] == "ACTION_NOT_YET_EXECUTABLE"
+        assert "action_boundary_node" in result["route_trace"]
+        assert result["response_goal"] == "ANSWER"
+
+        # 2. Action state & pending_action collection
+        action_res = result.get("action_result")
+        assert action_res is not None
+        assert action_res["action_type"] == "CREATE_HOME_VISIT"
+        assert action_res["status"] == "NEEDS_DATA"
+        assert action_res["committed"] is False
+        assert "address" in action_res["missing_fields"] or "area" in action_res["missing_fields"]
+
+        # 3. Pending action persisted in return state
+        pending = result.get("pending_action")
+        assert pending is not None
+        assert pending["action_type"] == "CREATE_HOME_VISIT"
+        assert pending["visit_type"] == "HOME"
+        assert len(pending["missing_fields"]) > 0
+
+        # 4. Zero DB mutations prior to explicit confirmation
+        assert db.session.query(Booking).count() == 0
+        assert db.session.query(HomeVisit).count() == 0
+
+        # 5. Durable persistence in ConversationSession
+        session_rec = db.session.query(ConversationSession).filter_by(session_id="sess-f7").first()
+        assert session_rec is not None
+        assert session_rec.pending_action is not None
+        assert session_rec.pending_action.get("action_type") == "CREATE_HOME_VISIT"
+
+        # 6. Safety boundary preserved: No fake booking confirmation claim
         assert "booking is confirmed" not in result["response"].lower()
         assert "تم تأكيد حجزك" not in result["response"]
+        # Asks for missing information
+        assert any(
+            field in result["response"].lower()
+            for field in ["name", "phone", "address", "area", "detail"]
+        ) or any(w in result["response"] for w in ["الاسم", "الهاتف", "عنوان", "المنطقة", "بيانات"])
