@@ -40,4 +40,38 @@ class PackageRepository:
             )
 
         stmt = stmt.order_by(Package.name)
-        return list(db.session.execute(stmt).scalars().all())
+        results = list(db.session.execute(stmt).scalars().all())
+
+        # If no results matched the full phrase, fallback to search across meaningful tokens
+        if not results and query:
+            stopwords = {
+                "what",
+                "which",
+                "packages",
+                "package",
+                "offer",
+                "have",
+                "with",
+                "for",
+                "about",
+                "your",
+            }
+            tokens = [
+                w.strip().lower()
+                for w in query.split()
+                if len(w.strip()) >= 3 and w.strip().lower() not in stopwords
+            ]
+            if tokens:
+                from sqlalchemy import or_
+
+                token_stmt = select(Package).options(selectinload(Package.tests))
+                if active_only:
+                    token_stmt = token_stmt.where(Package.active.is_(True))
+                conditions = []
+                for token in tokens:
+                    pat = f"%{token}%"
+                    conditions.append(Package.name.ilike(pat) | Package.description.ilike(pat))
+                token_stmt = token_stmt.where(or_(*conditions)).order_by(Package.name)
+                results = list(db.session.execute(token_stmt).scalars().all())
+
+        return results

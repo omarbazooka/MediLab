@@ -75,8 +75,94 @@ _FACT_ALIASES: dict[str, tuple[str, ...]] = {
         "cannot provide a diagnosis",
         "unable to diagnose",
     ),
+    "cannot recommend medication": (
+        "cannot recommend medication",
+        "can't recommend medication",
+        "do not recommend medication",
+        "cannot prescribe",
+        "can't prescribe",
+        "do not prescribe",
+        "cannot recommend or prescribe medications",
+        "cannot advise on medications",
+        "unable to prescribe",
+    ),
+    "cannot interpret": (
+        "cannot interpret",
+        "can't interpret",
+        "does not interpret",
+        "do not interpret",
+        "don't interpret",
+        "cannot provide clinical interpretation",
+        "do not provide clinical interpretation",
+        "unable to interpret",
+    ),
+    "booking": ("booking", "book", "bookings", "appointment", "reserve", "reservation"),
+    "service": (
+        "service",
+        "services",
+        "customer service",
+        "customer care",
+        "customer support",
+        "support",
+        "visit",
+        "home visit",
+        "representative",
+    ),
+    "cancellation": ("cancellation", "cancellations", "cancel", "cancelling"),
+    "customer service": (
+        "customer service",
+        "customer care",
+        "customer support",
+        "support team",
+        "support",
+        "representative",
+        "help desk",
+    ),
+    "branches": ("branches", "branch", "locations", "location", "centers", "facilities"),
+    "tests": ("tests", "test", "testing", "analyses", "analysis", "investigations"),
+    "policy": ("policy", "terms", "rules", "guidelines", "cancellation policy"),
     "طبيب": ("طبيب", "مختص", "متخصص", "رعاية صحية"),
 }
+
+
+def _verify_disposable_database_seeded() -> None:
+    """Ensure disposable database contains authoritative seeded catalog facts required by live cases."""
+    from app.models.branch import Branch
+    from app.models.knowledge import KnowledgeDocument
+    from app.models.package import Package
+    from app.models.test import LabTest
+
+    cbc = LabTest.query.filter_by(code="CBC").first()
+    if not cbc or float(cbc.price) != 250.0:
+        raise RuntimeError(
+            f"Seeded catalog fact mismatch: CBC price must be 250.00, got {cbc.price if cbc else 'None'}."
+        )
+
+    tsh = LabTest.query.filter_by(code="TSH").first()
+    if not tsh or float(tsh.price) != 220.0:
+        raise RuntimeError(
+            f"Seeded catalog fact mismatch: TSH price must be 220.00, got {tsh.price if tsh else 'None'}."
+        )
+
+    kft = LabTest.query.filter_by(code="KFT").first()
+    if not kft or "Serum" not in (kft.sample_type or ""):
+        raise RuntimeError(
+            f"Seeded catalog fact mismatch: KFT sample_type must contain 'Serum', got {kft.sample_type if kft else 'None'}."
+        )
+
+    pkg = Package.query.filter_by(name="Comprehensive Health Checkup").first()
+    if not pkg or not pkg.active:
+        raise RuntimeError(
+            "Seeded catalog fact mismatch: Active package 'Comprehensive Health Checkup' missing."
+        )
+
+    active_branches = Branch.query.filter_by(active=True).count()
+    if active_branches == 0:
+        raise RuntimeError("Seeded catalog fact mismatch: Active laboratory branches missing.")
+
+    kdocs_count = KnowledgeDocument.query.count()
+    if kdocs_count == 0:
+        raise RuntimeError("Seeded catalog fact mismatch: Knowledge documents missing.")
 
 
 def get_git_commit() -> str:
@@ -191,6 +277,13 @@ def run_live_gemini_eval() -> int:
             provider = get_llm_provider()
         except ConfigurationError as exc:
             print(f"\n[BLOCKED] Cannot run live Gemini evaluation: {exc}")
+            return 2
+
+        try:
+            _verify_disposable_database_seeded()
+        except RuntimeError as exc:
+            print(f"\n[BLOCKED] Database catalog verification failed: {exc}")
+            print("Run 'uv run python scripts/seed_db.py' to seed the disposable database.")
             return 2
 
         pacing_raw = os.getenv("GEMINI_LIVE_PACING_SECONDS", "16").strip()
@@ -355,6 +448,10 @@ def run_live_gemini_eval() -> int:
                     "expected_intent": expected_intent if intent_applicable else None,
                     "actual_route": route,
                     "expected_route": expected_route,
+                    "request_plan": result.get("request_plan"),
+                    "entities": result.get("entities", {}),
+                    "structured_result": result.get("structured_result"),
+                    "response_goal": result.get("response_goal"),
                     "latency_ms": total_ms,
                     "response_snippet": response[:160].replace("\n", " "),
                 }

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from datetime import date
 from typing import Any
 
+from app.agent.schemas import AgentIntent
 from app.agent.state import MediLabAgentState
 from app.services.branch_service import BranchService
 from app.services.package_service import PackageService
@@ -62,6 +64,11 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
             query = str(entities["test_query"]).strip()
             test_obj = test_service.get_test_by_code(query)
             if not test_obj:
+                for word in re.findall(r"\b[A-Za-z0-9]+\b", query):
+                    test_obj = test_service.get_test_by_code(word)
+                    if test_obj:
+                        break
+            if not test_obj:
                 matched_tests = test_service.search_tests(query=query, active_only=True)
                 if len(matched_tests) == 1:
                     test_obj = matched_tests[0]
@@ -82,10 +89,19 @@ def structured_data_node(state: MediLabAgentState) -> dict[str, Any]:
         if selected_package_id:
             lookup_attempted = True
             package_obj = package_service.get_package_details(selected_package_id)
-        elif entities.get("package_query"):
+        elif entities.get("package_query") or intent in {
+            AgentIntent.PACKAGE_SEARCH.value,
+            AgentIntent.PACKAGE_DETAILS.value,
+            AgentIntent.PACKAGE_PRICE.value,
+            "PACKAGE_SEARCH",
+            "PACKAGE_DETAILS",
+            "PACKAGE_PRICE",
+        }:
             lookup_attempted = True
-            query = str(entities["package_query"]).strip()
-            search_query = None if query.lower() in ("all", "*", "") else query
+            raw_query = str(entities.get("package_query") or "").strip()
+            search_query = (
+                None if raw_query.lower() in ("all", "*", "", "packages", "package") else raw_query
+            )
             matched_packages = package_service.search_packages(query=search_query, active_only=True)
             if matched_packages:
                 structured_facts["packages"] = [

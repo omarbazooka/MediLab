@@ -210,6 +210,17 @@ class FakeLLMProvider:
                 language=lang,
             )
 
+        # Cancellation policy questions (specific)
+        if any(w in lower for w in ["cancell", "reschedul"]) and any(
+            w in lower for w in ["policy", "appointment", "booking"]
+        ):
+            return RequestPlan(
+                primary_intent=AgentIntent.CANCELLATION_POLICY,
+                requested_information=["policy"],
+                requires_rag=True,
+                language=lang,
+            )
+
         # Policy questions
         if any(
             w in lower

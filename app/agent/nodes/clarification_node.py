@@ -55,7 +55,32 @@ def clarification_node(state: MediLabAgentState) -> dict[str, Any]:
     snapshot_items: list[dict[str, Any]] = []
 
     entities = state.get("entities", {})
-    query = entities.get("test_query") or state.get("normalized_user_message", "")
+    query = (entities.get("test_query") or entities.get("package_query") or "").strip()
+    if not query:
+        raw = state.get("normalized_user_message", "")
+        for kw in (
+            "thyroid",
+            "diabetes",
+            "lipid",
+            "cholesterol",
+            "liver",
+            "kidney",
+            "urine",
+            "blood",
+            "cbc",
+            "tsh",
+            "kft",
+            "lft",
+            "vitd",
+            "ferritin",
+            "fbs",
+            "hba1c",
+        ):
+            if kw in raw.lower():
+                query = kw
+                break
+        if not query:
+            query = raw
 
     test_repo = TestRepository()
     package_repo = PackageRepository()

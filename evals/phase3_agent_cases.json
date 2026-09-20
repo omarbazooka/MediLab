@@ -202,7 +202,7 @@
     "user_message": "What is MediLab's policy for cancelling or rescheduling an appointment?",
     "session_setup": {},
     "expected_safety": "SAFE_OPERATIONAL",
-    "expected_intent": "POLICY",
+    "expected_intent": "CANCELLATION_POLICY",
     "expected_route": "rag",
     "expected_needs_clarification": false,
     "expected_facts": ["policy"],
