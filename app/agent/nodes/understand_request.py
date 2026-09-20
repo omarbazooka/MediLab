@@ -110,6 +110,8 @@ def understand_request(state: MediLabAgentState) -> dict[str, Any]:
         "visible_options": visible_options,
         "has_pending_clarification": bool(pending),
         "pending_clarification_target": pending.get("target"),
+        "has_pending_action": bool(state.get("pending_action")),
+        "pending_action": state.get("pending_action"),
         "customer_associated": bool(state.get("customer_id")),
         "customer_history_summary": _customer_history_summary(state),
     }

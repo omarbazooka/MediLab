@@ -243,29 +243,158 @@ class FakeLLMProvider:
                 language=lang,
             )
 
+        # Active pending action continuation
+        if context_summary and context_summary.get("has_pending_action"):
+            pending_act = context_summary.get("pending_action") or {}
+            act_type = pending_act.get("action_type", "CREATE_BRANCH_BOOKING")
+            if act_type == "CANCEL_BOOKING":
+                prim_intent = AgentIntent.CANCEL_BOOKING
+            elif act_type == "CREATE_HOME_VISIT":
+                prim_intent = AgentIntent.BOOK_HOME_VISIT
+            else:
+                prim_intent = AgentIntent.BOOK_BRANCH_VISIT
+
+            ents: dict[str, Any] = {}
+            ref_match = re.search(r"\b(MLB-\d{8}-[A-F0-9]{8})\b", user_message, re.IGNORECASE)
+            if ref_match:
+                ents["booking_reference"] = ref_match.group(1).upper()
+
+            phone_match = re.search(r"\b(01[0125]\d{8}|\+201[0125]\d{8})\b", user_message)
+            if phone_match:
+                ents["customer_phone"] = phone_match.group(1)
+
+            name_match = re.search(
+                r"(?:my name is|name is|اسمي|الاسم)\s+([A-Za-z\u0600-\u06FF]+(?:\s+[A-Za-z\u0600-\u06FF]+)?)",
+                user_message,
+                re.IGNORECASE,
+            )
+            if not name_match:
+                name_match = re.search(
+                    r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b",
+                    user_message,
+                )
+            if name_match and not any(
+                k in name_match.group(1).lower()
+                for k in ["nasr", "city", "maadi", "dokki", "cairo"]
+            ):
+                ents["customer_name"] = name_match.group(1).strip()
+
+            addr_match = re.search(
+                r"(?:address|عنوان|شارع)\s*:?\s*([^,.\n]+(?:,\s*[^,.\n]+)?)",
+                user_message,
+                re.IGNORECASE,
+            )
+            if addr_match:
+                ents["address"] = addr_match.group(1).strip()
+
+            for candidate_area in [
+                "Nasr City",
+                "Maadi",
+                "Dokki",
+                "New Cairo",
+                "Giza",
+                "Heliopolis",
+                "Zamalek",
+                "Mohandessin",
+                "مدينة نصر",
+                "المعادي",
+                "الدقي",
+                "التجمع",
+                "الجيزة",
+                "مصر الجديدة",
+                "الزمالك",
+                "المهندسين",
+            ]:
+                if candidate_area.lower() in user_message.lower():
+                    ents["area"] = candidate_area
+                    break
+
+            return RequestPlan(
+                primary_intent=prim_intent,
+                action_intent=act_type,
+                entities=ents,
+                language=lang,
+            )
+
         # Action boundary intents
-        if any(w in lower for w in ["cancel", "إلغاء", "الغي"]):
+        if any(w in lower for w in ["cancel", "إلغاء", "الغي"]) and not any(
+            w in lower for w in ["policy", "سياسة", "شروط"]
+        ):
+            ents = {}
+            ref_match = re.search(r"\b(MLB-\d{8}-[A-F0-9]{8})\b", user_message, re.IGNORECASE)
+            if ref_match:
+                ents["booking_reference"] = ref_match.group(1).upper()
             return RequestPlan(
                 primary_intent=AgentIntent.CANCEL_BOOKING,
                 action_intent="CANCEL_BOOKING",
+                entities=ents,
                 language=lang,
             )
-        if any(w in lower for w in ["my booking", "status", "حالة الحجز"]):
+
+        if any(w in lower for w in ["my booking", "status", "حالة الحجز", "استعلام عن حجز"]):
+            ents = {}
+            ref_match = re.search(r"\b(MLB-\d{8}-[A-F0-9]{8})\b", user_message, re.IGNORECASE)
+            if ref_match:
+                ents["booking_reference"] = ref_match.group(1).upper()
             return RequestPlan(
                 primary_intent=AgentIntent.CHECK_BOOKING,
                 action_intent="CHECK_BOOKING",
+                entities=ents,
                 language=lang,
             )
+
         if any(w in lower for w in ["book", "احجز", "حجز"]):
-            if any(w in lower for w in ["home", "منزلي", "البيت"]):
-                return RequestPlan(
-                    primary_intent=AgentIntent.BOOK_HOME_VISIT,
-                    action_intent="BOOK_HOME_VISIT",
-                    language=lang,
-                )
+            is_home = any(w in lower for w in ["home", "منزلي", "البيت", "منزل"])
+            prim_intent = AgentIntent.BOOK_HOME_VISIT if is_home else AgentIntent.BOOK_BRANCH_VISIT
+            act_type = "CREATE_HOME_VISIT" if is_home else "CREATE_BRANCH_BOOKING"
+
+            ents = {}
+            for code in [
+                "CBC",
+                "LIPID",
+                "LFT",
+                "KFT",
+                "TSH",
+                "VITD",
+                "FERRITIN",
+                "HBA1C",
+                "FBS",
+                "URINE",
+            ]:
+                if code.lower() in lower:
+                    ents["test_query"] = code
+                    break
+
+            for branch_name in [
+                "Nasr City",
+                "Maadi",
+                "Dokki",
+                "New Cairo",
+                "مدينة نصر",
+                "المعادي",
+                "الدقي",
+                "التجمع",
+            ]:
+                if branch_name.lower() in lower:
+                    ents["branch_name"] = branch_name
+                    break
+
+            phone_match = re.search(r"\b(01[0125]\d{8}|\+201[0125]\d{8})\b", user_message)
+            if phone_match:
+                ents["customer_phone"] = phone_match.group(1)
+
+            name_match = re.search(
+                r"(?:my name is|name is|اسمي|الاسم)\s+([A-Za-z\u0600-\u06FF]+(?:\s+[A-Za-z\u0600-\u06FF]+)?)",
+                user_message,
+                re.IGNORECASE,
+            )
+            if name_match:
+                ents["customer_name"] = name_match.group(1).strip()
+
             return RequestPlan(
-                primary_intent=AgentIntent.BOOK_BRANCH_VISIT,
-                action_intent="BOOK_BRANCH_VISIT",
+                primary_intent=prim_intent,
+                action_intent=act_type,
+                entities=ents,
                 language=lang,
             )
 
@@ -560,18 +689,169 @@ class FakeLLMProvider:
                 )
             return ResponseDraft(text=text, response_goal=ResponseGoal.SAFE_BOUNDARY)
 
-        # Action boundary response (Phase 4 placeholder)
+        # Action result response (Phase 4)
+        action_res = evidence_bundle.get("action_result")
+        if action_res and isinstance(action_res, dict):
+            status = action_res.get("status")
+
+            if status == "NEEDS_DATA":
+                missing = action_res.get("missing_fields") or []
+                if "customer_name" in missing or "customer_phone" in missing:
+                    text = (
+                        "يرجى تزويدنا بالاسم ورقم الهاتف لإتمام حجز موعدك."
+                        if lang == "ar"
+                        else "Please provide your full name and phone number to proceed with booking."
+                    )
+                elif "scheduled_time" in missing or "scheduled_date" in missing:
+                    text = (
+                        "يرجى تحديد الموعد والوقت المطلوب للحجز."
+                        if lang == "ar"
+                        else "Please specify your preferred date and time for the appointment."
+                    )
+                elif "branch" in missing:
+                    text = (
+                        "في أي فرع من فروعنا ترغب في إجراء التحليل؟ (مدينة نصر، المعادي، الدقي، التجمع)"
+                        if lang == "ar"
+                        else "Which branch would you like to visit? (Nasr City, Maadi, Dokki, or New Cairo)"
+                    )
+                elif "address" in missing or "area" in missing:
+                    text = (
+                        "يرجى تزويدنا بالعنوان بالتفصيل والمنطقة لزيارة سحب العينة المنزلية."
+                        if lang == "ar"
+                        else "Please provide your address and area for the home sample collection visit."
+                    )
+                elif "booking_reference" in missing:
+                    text = (
+                        "يرجى إدخال كود مرجع الحجز المطلوب."
+                        if lang == "ar"
+                        else "Please provide your booking reference code."
+                    )
+                else:
+                    text = (
+                        "يرجى تزويدنا بالبيانات المتبقية لإتمام حجزك."
+                        if lang == "ar"
+                        else "Please provide the remaining details to complete your booking."
+                    )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status in {"SLOT_ERROR", "SLOT_FULL", "INVALID_TIME", "OUTSIDE_HOURS"}:
+                reason = action_res.get("reason") or "Slot unavailable"
+                alts = action_res.get("alternatives") or []
+                if alts:
+                    alt_times = ", ".join(f"{a.get('time')} ({a.get('date')})" for a in alts)
+                    text = (
+                        f"{reason} أقرب المواعيد البديلة المتاحة هي: {alt_times}. هل ترغب في اختيار أحد هذه المواعيد؟"
+                        if lang == "ar"
+                        else f"{reason} The closest available slots are: {alt_times}. Would you like to select one of these times?"
+                    )
+                else:
+                    text = (
+                        f"{reason} يرجى اختيار موعد آخر متاح."
+                        if lang == "ar"
+                        else f"{reason} Please select an alternative available time."
+                    )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "AWAITING_CONFIRMATION":
+                summ = action_res.get("summary") or {}
+                svc = summ.get("service_name", "Diagnostic Service")
+                loc = summ.get("branch_name") or summ.get("area") or "MediLab"
+                d_str = summ.get("scheduled_date", "")
+                t_str = summ.get("scheduled_time", "")
+                pr = summ.get("total_price", "0.00")
+                c_name = summ.get("customer_name")
+                c_phone = summ.get("customer_phone")
+                c_info = f" for {c_name} ({c_phone})" if c_name else ""
+                text = (
+                    f"يرجى مراجعة تفاصيل الموعد: تحليل {svc} في {loc} بتاريخ {d_str} الساعة {t_str} بسعر {pr} جنيه مصري{f' للمريض {c_name}' if c_name else ''}. هل تؤكد الحجز؟"
+                    if lang == "ar"
+                    else f"Please confirm your appointment: {svc} at {loc} on {d_str} at {t_str} for {pr} EGP{c_info}. Would you like me to confirm this booking?"
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "EXECUTED":
+                ref = action_res.get("booking_reference", "")
+                summ = action_res.get("summary") or {}
+                svc = summ.get("service_name", "your test")
+                d_str = summ.get("scheduled_date", "")
+                t_str = summ.get("scheduled_time", "")
+                text = (
+                    f"تم تأكيد حجزك بنجاح! رقم الحجز هو {ref} لموعد {svc} يوم {d_str} في تمام الساعة {t_str}."
+                    if lang == "ar"
+                    else f"Your booking has been confirmed! Your booking reference is {ref}. Scheduled for {svc} on {d_str} at {t_str}."
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "CANCELLED":
+                ref = action_res.get("booking_reference", "")
+                text = (
+                    f"تم إلغاء الحجز {ref} بنجاح، وتم تحرير الموعد."
+                    if lang == "ar"
+                    else f"Booking {ref} has been cancelled successfully, and the slot has been released."
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "STATUS_FOUND":
+                b = action_res.get("booking") or {}
+                ref = b.get("reference", "")
+                st = b.get("status", "")
+                items = b.get("items", "")
+                d_str = b.get("scheduled_date", "")
+                t_str = b.get("scheduled_time", "")
+                tot = b.get("total_price", "0.00")
+                loc = b.get("branch_name") or "MediLab"
+                text = (
+                    f"حالة الحجز {ref} هي {st} لفحص {items} في {loc} بتاريخ {d_str} الساعة {t_str} (السعر: {tot} جنيه)."
+                    if lang == "ar"
+                    else f"Booking {ref} is currently {st} for {items} at {loc} on {d_str} at {t_str} ({tot} EGP)."
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "STATUS_NOT_FOUND":
+                ref = action_res.get("booking_reference", "")
+                text = (
+                    f"لم يتم العثور على حجز برقم {ref} خاص بحسابك."
+                    if lang == "ar"
+                    else f"No booking found with reference {ref} under your account."
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "ALREADY_CANCELLED":
+                ref = action_res.get("booking_reference", "")
+                text = (
+                    f"الحجز {ref} ملغى بالفعل."
+                    if lang == "ar"
+                    else f"Booking {ref} is already cancelled."
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status == "ABORTED":
+                text = (
+                    "تم إلغاء عملية الحجز بناءً على رغبتك."
+                    if lang == "ar"
+                    else "The booking process has been cancelled."
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+            if status in {"ERROR", "VALIDATION_ERROR"}:
+                msg = action_res.get("message") or "An error occurred."
+                text = (
+                    f"عذراً، حدث خطأ: {msg}"
+                    if lang == "ar"
+                    else f"I apologize, an error occurred: {msg}"
+                )
+                return ResponseDraft(text=text, response_goal=ResponseGoal.ANSWER)
+
+        # Fallback action boundary response
         if goal == ResponseGoal.ACTION_NOT_YET_EXECUTABLE.value:
             if lang == "ar":
                 text = (
                     "يمكننا مساعدتك في تفاصيل التحاليل والأسعار ومواعيد الفروع. "
-                    "خدمة حجز المواعيد وإلغاء الحجز قيد التفعيل حالياً وستكون متاحة في الإصدار القادم. "
                     "يرجى التواصل مع خدمة العملاء مباشرة للمساعدة في حجز أو إلغاء موعدك."
                 )
             else:
                 text = (
                     "I can assist you with test details, branch locations, and preparation guidelines. "
-                    "Direct appointment booking service and cancellation will be activated in our upcoming release. "
                     "Please contact our customer service desk directly."
                 )
             return ResponseDraft(text=text, response_goal=ResponseGoal.ACTION_NOT_YET_EXECUTABLE)

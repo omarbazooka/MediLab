@@ -3,8 +3,8 @@
 from __future__ import annotations
 
 import secrets
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from datetime import UTC, date, datetime, time
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy.exc import IntegrityError
 
@@ -64,6 +64,204 @@ class BookingService:
         random_suffix = secrets.token_hex(4).upper()  # 8 hex characters
         return f"MLB-{today_str}-{random_suffix}"
 
+    @staticmethod
+    def validate_appointment_time(target_time: time) -> tuple[bool, str | None]:
+        """Validate that an appointment time falls on the 30-minute grid between 09:00 and 19:00.
+
+        Rules:
+        - 09:00 through 18:30 are valid appointment start times.
+        - 19:00 is closing time, NOT a valid appointment start time.
+        - Minutes must be 0 or 30. Seconds must be 0.
+        - Off-grid times (e.g. 16:05, 16:45) are invalid.
+        """
+        if (
+            target_time.minute not in (0, 30)
+            or target_time.second != 0
+            or target_time.microsecond != 0
+        ):
+            return False, "INVALID_INTERVAL"
+
+        start_opening = time(9, 0)
+        end_opening = time(19, 0)
+
+        if target_time < start_opening:
+            return False, "BEFORE_OPENING_HOURS"
+
+        if target_time >= end_opening:
+            return False, "OUTSIDE_OPENING_HOURS"
+
+        return True, None
+
+    def check_branch_availability(
+        self,
+        branch_id: int | None,
+        visit_type: str,
+        target_date: date,
+        target_time: time,
+    ) -> dict[str, Any]:
+        """Deterministically verify branch hours, slot existence, and remaining capacity.
+
+        Never silently rounds invalid times. If requested slot is invalid or full,
+        queries and returns real available alternative slots from the database.
+        """
+        clean_visit_type = visit_type.strip().upper()
+        if clean_visit_type not in {"BRANCH", "HOME"}:
+            return {
+                "status": "INVALID_VISIT_TYPE",
+                "available": False,
+                "slot_id": None,
+                "reason": f"Invalid visit type '{visit_type}'.",
+                "alternatives": [],
+            }
+
+        # 1. Validate branch operational status if BRANCH
+        if clean_visit_type == "BRANCH":
+            if branch_id is None:
+                return {
+                    "status": "BRANCH_REQUIRED",
+                    "available": False,
+                    "slot_id": None,
+                    "reason": "branch_id is required for BRANCH visits.",
+                    "alternatives": [],
+                }
+            branch = self.branch_repo.get_by_id(branch_id)
+            if branch is None or not branch.active:
+                return {
+                    "status": "BRANCH_INACTIVE",
+                    "available": False,
+                    "slot_id": None,
+                    "reason": f"Branch {branch_id} does not exist or is inactive.",
+                    "alternatives": [],
+                }
+
+        # 2. Validate discrete 30-minute operating hours grid
+        is_valid_time, time_reason = self.validate_appointment_time(target_time)
+        if not is_valid_time:
+            alternatives = self.branch_repo.find_nearby_available_slots(
+                target_date=target_date,
+                target_time=target_time,
+                branch_id=branch_id,
+                visit_type=clean_visit_type,
+                limit=3,
+            )
+            alt_list = [
+                {
+                    "slot_id": s.id,
+                    "date": s.date.isoformat(),
+                    "time": s.time.strftime("%H:%M"),
+                    "branch_id": s.branch_id,
+                    "branch_name": s.branch.name if s.branch else None,
+                }
+                for s in alternatives
+            ]
+            reason_msg = (
+                f"Requested time {target_time.strftime('%H:%M')} is not a valid 30-minute slot."
+                if time_reason == "INVALID_INTERVAL"
+                else f"Requested time {target_time.strftime('%H:%M')} is outside branch operating hours (09:00 - 19:00)."
+            )
+            return {
+                "status": "INVALID_TIME" if time_reason == "INVALID_INTERVAL" else "OUTSIDE_HOURS",
+                "available": False,
+                "slot_id": None,
+                "reason": reason_msg,
+                "alternatives": alt_list,
+            }
+
+        # 3. Query slot from database
+        slot = self.branch_repo.find_slot_by_date_time(
+            target_date=target_date,
+            target_time=target_time,
+            branch_id=branch_id,
+            visit_type=clean_visit_type,
+        )
+
+        if slot is None:
+            alternatives = self.branch_repo.find_nearby_available_slots(
+                target_date=target_date,
+                target_time=target_time,
+                branch_id=branch_id,
+                visit_type=clean_visit_type,
+                limit=3,
+            )
+            alt_list = [
+                {
+                    "slot_id": s.id,
+                    "date": s.date.isoformat(),
+                    "time": s.time.strftime("%H:%M"),
+                    "branch_id": s.branch_id,
+                    "branch_name": s.branch.name if s.branch else None,
+                }
+                for s in alternatives
+            ]
+            return {
+                "status": "SLOT_NOT_FOUND",
+                "available": False,
+                "slot_id": None,
+                "reason": f"No scheduled slot found for {target_date.isoformat()} at {target_time.strftime('%H:%M')}.",
+                "alternatives": alt_list,
+            }
+
+        if not slot.active:
+            alternatives = self.branch_repo.find_nearby_available_slots(
+                target_date=target_date,
+                target_time=target_time,
+                branch_id=branch_id,
+                visit_type=clean_visit_type,
+                limit=3,
+            )
+            alt_list = [
+                {
+                    "slot_id": s.id,
+                    "date": s.date.isoformat(),
+                    "time": s.time.strftime("%H:%M"),
+                    "branch_id": s.branch_id,
+                    "branch_name": s.branch.name if s.branch else None,
+                }
+                for s in alternatives
+            ]
+            return {
+                "status": "SLOT_INACTIVE",
+                "available": False,
+                "slot_id": slot.id,
+                "reason": "The appointment slot is inactive.",
+                "alternatives": alt_list,
+            }
+
+        if slot.reserved_count >= slot.capacity:
+            alternatives = self.branch_repo.find_nearby_available_slots(
+                target_date=target_date,
+                target_time=target_time,
+                branch_id=branch_id,
+                visit_type=clean_visit_type,
+                limit=3,
+            )
+            alt_list = [
+                {
+                    "slot_id": s.id,
+                    "date": s.date.isoformat(),
+                    "time": s.time.strftime("%H:%M"),
+                    "branch_id": s.branch_id,
+                    "branch_name": s.branch.name if s.branch else None,
+                }
+                for s in alternatives
+            ]
+            return {
+                "status": "SLOT_FULL",
+                "available": False,
+                "slot_id": slot.id,
+                "reason": f"Slot at {target_time.strftime('%H:%M')} on {target_date.isoformat()} is fully booked.",
+                "alternatives": alt_list,
+            }
+
+        return {
+            "status": "AVAILABLE",
+            "available": True,
+            "slot_id": slot.id,
+            "slot": slot,
+            "reason": None,
+            "alternatives": [],
+        }
+
     def create_booking(
         self,
         customer_name: str,
@@ -113,8 +311,12 @@ class BookingService:
         if not test_ids and not package_ids:
             raise BookingValidationError("At least one test or package must be selected.")
 
-        if clean_visit_type == "BRANCH" and branch_id is None:
-            raise BookingValidationError("branch_id is required for BRANCH visits.")
+        if clean_visit_type == "BRANCH":
+            if branch_id is None:
+                raise BookingValidationError("branch_id is required for BRANCH visits.")
+            branch = self.branch_repo.get_by_id(branch_id)
+            if branch is None or not branch.active:
+                raise BookingValidationError(f"Branch {branch_id} does not exist or is inactive.")
 
         if clean_visit_type == "HOME":
             if not address or not address.strip():
@@ -138,6 +340,13 @@ class BookingService:
 
             if clean_visit_type == "BRANCH" and slot.branch_id != branch_id:
                 raise BookingValidationError("Slot branch does not match requested branch.")
+
+            # Validate slot time grid
+            is_valid_time, time_reason = self.validate_appointment_time(slot.time)
+            if not is_valid_time:
+                raise BookingValidationError(
+                    f"Slot time {slot.time.strftime('%H:%M')} is not a valid 30-minute appointment time ({time_reason})."
+                )
 
             # 4. Strict capacity verification
             if slot.reserved_count >= slot.capacity:
@@ -236,15 +445,102 @@ class BookingService:
             db.session.rollback()
             raise
 
+    def create_branch_booking(
+        self,
+        customer_name: str,
+        customer_phone: str,
+        branch_id: int,
+        slot_id: int,
+        idempotency_key: str,
+        test_ids: list[int] | None = None,
+        package_ids: list[int] | None = None,
+        customer_email: str | None = None,
+        notes: str | None = None,
+    ) -> Booking:
+        """Create an in-branch appointment booking."""
+        return self.create_booking(
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            slot_id=slot_id,
+            visit_type="BRANCH",
+            idempotency_key=idempotency_key,
+            customer_email=customer_email,
+            branch_id=branch_id,
+            test_ids=test_ids,
+            package_ids=package_ids,
+            notes=notes,
+        )
+
+    def create_home_visit(
+        self,
+        customer_name: str,
+        customer_phone: str,
+        slot_id: int,
+        address: str,
+        area: str,
+        idempotency_key: str,
+        test_ids: list[int] | None = None,
+        package_ids: list[int] | None = None,
+        home_instructions: str | None = None,
+        customer_email: str | None = None,
+        notes: str | None = None,
+    ) -> Booking:
+        """Create a home sample collection appointment booking."""
+        return self.create_booking(
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            slot_id=slot_id,
+            visit_type="HOME",
+            idempotency_key=idempotency_key,
+            customer_email=customer_email,
+            branch_id=None,
+            test_ids=test_ids,
+            package_ids=package_ids,
+            address=address,
+            area=area,
+            home_instructions=home_instructions,
+            notes=notes,
+        )
+
     def get_booking_by_reference(self, reference: str) -> Booking | None:
         """Fetch booking by its reference code."""
         if not reference or not reference.strip():
             return None
         return self.booking_repo.get_by_reference(reference)
 
-    def cancel_booking(self, reference: str) -> Booking:
+    def get_booking_status(
+        self,
+        reference: str,
+        customer_id: int | None = None,
+        customer_phone: str | None = None,
+    ) -> Booking | None:
+        """Fetch booking by reference ensuring proper customer ownership scoping."""
+        if not reference or not reference.strip():
+            return None
+        clean_ref = reference.strip().upper()
+        booking = self.booking_repo.get_by_reference(clean_ref)
+        if booking is None:
+            return None
+
+        # Ownership scoping: if customer scope is provided, verify match
+        if customer_id is not None and booking.customer_id != customer_id:
+            return None
+        if customer_phone is not None:
+            norm_phone = customer_phone.strip()
+            if booking.customer.phone != norm_phone:
+                return None
+
+        return booking
+
+    def cancel_booking(
+        self,
+        reference: str,
+        customer_id: int | None = None,
+        customer_phone: str | None = None,
+    ) -> Booking:
         """Cancel an existing booking and release slot capacity atomically.
 
+        Verifies customer ownership scope when customer_id or customer_phone is provided.
         Locks the Booking row first to guarantee concurrent cancellation requests
         never decrement slot capacity multiple times.
         """
@@ -257,6 +553,12 @@ class BookingService:
             booking = self.booking_repo.get_by_reference(clean_ref, for_update=True)
             if booking is None:
                 raise BookingNotFoundError(f"Booking reference '{reference}' not found.")
+
+            # Verify ownership scoping
+            if customer_id is not None and booking.customer_id != customer_id:
+                raise BookingValidationError("You are not authorized to cancel this booking.")
+            if customer_phone is not None and booking.customer.phone != customer_phone.strip():
+                raise BookingValidationError("You are not authorized to cancel this booking.")
 
             # 2. Check cancellation status after acquiring lock
             if booking.status == "CANCELLED":

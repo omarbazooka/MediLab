@@ -251,15 +251,15 @@ def seed_packages(tests: dict[str, LabTest]) -> dict[str, Package]:
 
 
 def seed_branches() -> dict[str, Branch]:
-    """Seed physical laboratory branches idempotently."""
+    """Seed physical laboratory branches idempotently with standardized 09:00-19:00 hours."""
     branches_data = [
         {
             "name": "Nasr City Branch",
             "address": "14 Abbas El Akkad Street, Nasr City, Cairo",
             "phone": "+20224011234",
             "opening_hours": {
-                "saturday_thursday": "08:00 - 22:00",
-                "friday": "09:00 - 20:00",
+                "saturday_thursday": "09:00 - 19:00",
+                "friday": "09:00 - 19:00",
             },
         },
         {
@@ -267,7 +267,7 @@ def seed_branches() -> dict[str, Branch]:
             "address": "25 Road 9, Maadi, Cairo",
             "phone": "+20223581234",
             "opening_hours": {
-                "saturday_thursday": "08:00 - 22:00",
+                "saturday_thursday": "09:00 - 19:00",
                 "friday": "09:00 - 19:00",
             },
         },
@@ -276,8 +276,8 @@ def seed_branches() -> dict[str, Branch]:
             "address": "12 Mossadak Street, Dokki, Giza",
             "phone": "+20233371234",
             "opening_hours": {
-                "saturday_thursday": "08:00 - 22:00",
-                "friday": "09:00 - 20:00",
+                "saturday_thursday": "09:00 - 19:00",
+                "friday": "09:00 - 19:00",
             },
         },
         {
@@ -285,8 +285,8 @@ def seed_branches() -> dict[str, Branch]:
             "address": "55 North 90th Street, 5th Settlement, New Cairo",
             "phone": "+20228121234",
             "opening_hours": {
-                "saturday_thursday": "08:00 - 23:00",
-                "friday": "09:00 - 21:00",
+                "saturday_thursday": "09:00 - 19:00",
+                "friday": "09:00 - 19:00",
             },
         },
     ]
@@ -306,27 +306,22 @@ def seed_branches() -> dict[str, Branch]:
             )
             db.session.add(branch)
             db.session.flush()
+        else:
+            branch.opening_hours_json = item["opening_hours"]
+            db.session.flush()
         seeded[item["name"]] = branch
 
     return seeded
 
 
 def seed_availability_slots(branches: dict[str, Branch]) -> int:
-    """Seed appointment availability slots for both branch visits and home visit pools."""
-    dates = [
-        date(2026, 9, 15),
-        date(2026, 9, 16),
-        date(2026, 9, 17),
-        date(2026, 9, 18),
-        date(2026, 9, 19),
-        date(2026, 9, 20),
-        date(2026, 9, 21),
-        date(2026, 9, 22),
-        date(2026, 9, 23),
-        date(2026, 9, 24),
-        date(2026, 9, 25),
-    ]
-    times = [time(9, 0), time(11, 0), time(14, 0), time(17, 0)]
+    """Seed discrete 30-minute appointment availability slots (09:00-18:30) with capacity=1."""
+    from datetime import timedelta
+
+    start_date = date(2026, 9, 15)
+    dates = [start_date + timedelta(days=i) for i in range(14)]
+    # Discrete 30-minute slots: 09:00 to 18:30 (19:00 is closing time, not a valid start slot)
+    times = [time(hour, minute) for hour in range(9, 19) for minute in (0, 30)]
     slot_count = 0
 
     # 1. Branch slots for each physical branch
@@ -348,17 +343,19 @@ def seed_availability_slots(branches: dict[str, Branch]) -> int:
                             visit_type="BRANCH",
                             date=slot_date,
                             time=slot_time,
-                            capacity=5,
+                            capacity=1,
                             reserved_count=0,
                             active=True,
                         )
                     )
                     slot_count += 1
+                elif existing.capacity != 1:
+                    existing.capacity = 1
+                    db.session.flush()
 
     # 2. Home visit pool slots (branch_id is NULL)
-    home_times = [time(9, 0), time(11, 0), time(14, 0)]
     for slot_date in dates:
-        for slot_time in home_times:
+        for slot_time in times:
             existing_home = db.session.execute(
                 select(AvailabilitySlot).where(
                     AvailabilitySlot.branch_id.is_(None),
@@ -374,12 +371,15 @@ def seed_availability_slots(branches: dict[str, Branch]) -> int:
                         visit_type="HOME",
                         date=slot_date,
                         time=slot_time,
-                        capacity=4,
+                        capacity=1,
                         reserved_count=0,
                         active=True,
                     )
                 )
                 slot_count += 1
+            elif existing_home.capacity != 1:
+                existing_home.capacity = 1
+                db.session.flush()
 
     db.session.flush()
     return slot_count

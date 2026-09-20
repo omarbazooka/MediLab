@@ -68,6 +68,7 @@ class AvailabilitySlot(db.Model):
             "time",
             unique=True,
             postgresql_where=text("visit_type = 'BRANCH'"),
+            sqlite_where=text("visit_type = 'BRANCH'"),
         ),
         Index(
             "uq_slots_home_date_time",
@@ -75,6 +76,7 @@ class AvailabilitySlot(db.Model):
             "time",
             unique=True,
             postgresql_where=text("visit_type = 'HOME' AND branch_id IS NULL"),
+            sqlite_where=text("visit_type = 'HOME' AND branch_id IS NULL"),
         ),
         Index("ix_slots_branch_date_active", "branch_id", "date", "active"),
         Index("ix_slots_visit_type_date", "visit_type", "date"),

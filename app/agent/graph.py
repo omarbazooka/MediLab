@@ -143,6 +143,8 @@ class MediLabAgent:
             "response_goal": final_state.get("response_goal"),
             "route_trace": final_state.get("route_trace", []),
             "pending_clarification": final_state.get("pending_clarification"),
+            "pending_action": final_state.get("pending_action"),
+            "action_result": final_state.get("action_result"),
             "selected_test_id": final_state.get("selected_test_id"),
             "selected_package_id": final_state.get("selected_package_id"),
             "active_search_snapshot": final_state.get("active_search_snapshot"),

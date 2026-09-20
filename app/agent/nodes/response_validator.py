@@ -144,6 +144,10 @@ def response_validator(state: MediLabAgentState) -> dict[str, Any]:
     if price_mentions:
         structured = state.get("structured_result") or {}
         known_prices = _collect_verified_prices(structured)
+        if state.get("action_result"):
+            known_prices.update(_collect_verified_prices(state["action_result"]))
+        if state.get("pending_action"):
+            known_prices.update(_collect_verified_prices(state["pending_action"]))
         unverified: list[str] = []
         for raw_price in price_mentions:
             mentioned = float(raw_price.replace(",", ""))

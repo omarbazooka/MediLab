@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, time
 
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
@@ -71,3 +71,83 @@ class BranchRepository:
         if for_update:
             stmt = stmt.with_for_update()
         return db.session.execute(stmt).scalar_one_or_none()
+
+    def find_slot_by_date_time(
+        self,
+        target_date: date,
+        target_time: time,
+        branch_id: int | None = None,
+        visit_type: str = "BRANCH",
+        for_update: bool = False,
+    ) -> AvailabilitySlot | None:
+        """Fetch a specific slot by date, time, and branch or home visit pool."""
+        stmt = (
+            select(AvailabilitySlot)
+            .where(
+                AvailabilitySlot.date == target_date,
+                AvailabilitySlot.time == target_time,
+                AvailabilitySlot.visit_type == visit_type.strip().upper(),
+            )
+            .options(selectinload(AvailabilitySlot.branch))
+        )
+        if visit_type.strip().upper() == "BRANCH":
+            stmt = stmt.where(AvailabilitySlot.branch_id == branch_id)
+        else:
+            stmt = stmt.where(AvailabilitySlot.branch_id.is_(None))
+
+        if for_update:
+            stmt = stmt.with_for_update()
+        return db.session.execute(stmt).scalar_one_or_none()
+
+    def find_nearby_available_slots(
+        self,
+        target_date: date,
+        target_time: time,
+        branch_id: int | None = None,
+        visit_type: str = "BRANCH",
+        limit: int = 3,
+    ) -> list[AvailabilitySlot]:
+        """Find real available slots on or near target_date closest to target_time."""
+        clean_visit_type = visit_type.strip().upper()
+        stmt = (
+            select(AvailabilitySlot)
+            .where(
+                AvailabilitySlot.date == target_date,
+                AvailabilitySlot.visit_type == clean_visit_type,
+                AvailabilitySlot.active.is_(True),
+                AvailabilitySlot.reserved_count < AvailabilitySlot.capacity,
+            )
+            .options(selectinload(AvailabilitySlot.branch))
+        )
+        if clean_visit_type == "BRANCH":
+            if branch_id is not None:
+                stmt = stmt.where(AvailabilitySlot.branch_id == branch_id)
+        else:
+            stmt = stmt.where(AvailabilitySlot.branch_id.is_(None))
+
+        slots = list(db.session.execute(stmt).scalars().all())
+
+        if not slots:
+            # Fallback to next upcoming dates with availability
+            stmt_fwd = (
+                select(AvailabilitySlot)
+                .where(
+                    AvailabilitySlot.date > target_date,
+                    AvailabilitySlot.visit_type == clean_visit_type,
+                    AvailabilitySlot.active.is_(True),
+                    AvailabilitySlot.reserved_count < AvailabilitySlot.capacity,
+                )
+                .options(selectinload(AvailabilitySlot.branch))
+                .order_by(AvailabilitySlot.date, AvailabilitySlot.time)
+                .limit(limit)
+            )
+            if clean_visit_type == "BRANCH" and branch_id is not None:
+                stmt_fwd = stmt_fwd.where(AvailabilitySlot.branch_id == branch_id)
+            elif clean_visit_type == "HOME":
+                stmt_fwd = stmt_fwd.where(AvailabilitySlot.branch_id.is_(None))
+            return list(db.session.execute(stmt_fwd).scalars().all())
+
+        # Sort slots on target_date by proximity in minutes to target_time
+        target_minutes = target_time.hour * 60 + target_time.minute
+        slots.sort(key=lambda s: abs((s.time.hour * 60 + s.time.minute) - target_minutes))
+        return slots[:limit]

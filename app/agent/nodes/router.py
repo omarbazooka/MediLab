@@ -17,12 +17,26 @@ def route_request(state: MediLabAgentState) -> str:
     plan = state.get("request_plan") or {}
     intent = state.get("intent") or ""
 
-    if plan.get("action_intent") or intent in {
-        AgentIntent.BOOK_BRANCH_VISIT.value,
-        AgentIntent.BOOK_HOME_VISIT.value,
-        AgentIntent.CHECK_BOOKING.value,
-        AgentIntent.CANCEL_BOOKING.value,
-    }:
+    if (
+        plan.get("action_intent")
+        or intent
+        in {
+            AgentIntent.BOOK_BRANCH_VISIT.value,
+            AgentIntent.BOOK_HOME_VISIT.value,
+            AgentIntent.CHECK_BOOKING.value,
+            AgentIntent.CANCEL_BOOKING.value,
+        }
+        or (
+            state.get("pending_action")
+            and not state.get("pending_clarification")
+            and intent
+            not in {
+                AgentIntent.PREPARATION.value,
+                AgentIntent.POLICY.value,
+                AgentIntent.CANCELLATION_POLICY.value,
+            }
+        )
+    ):
         return "action_boundary"
 
     requires_history = bool(

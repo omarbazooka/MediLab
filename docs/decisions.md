@@ -328,3 +328,18 @@ All future schema changes must be additive Alembic migrations; do not rewrite al
 - **Turn-Based Clarification:** Clarification suspends the graph turn, persists pending state and visible options to PostgreSQL, and resumes on the subsequent graph run without looping in memory. Maximum 2 attempts per ambiguous concept before human fallback.
 - **Action Boundary Interface:** Phase 3 understands action intents (`BOOK_BRANCH_VISIT`, `BOOK_HOME_VISIT`, `CHECK_BOOKING`, `CANCEL_BOOKING`), but enforces a strict placeholder boundary that never executes mutations or claims booking confirmation until Phase 4 transaction tools are implemented.
 
+---
+
+## Decision 17: Phase 4 Deterministic Booking Availability and Business Actions
+
+- **Status:** LOCKED FOR PHASE 4
+- **Branch Operating Hours:** 09:00 through 19:00 across all branches for MVP.
+- **Slot Scheduling:** Discrete 30-minute intervals (`09:00, 09:30, ..., 18:30`). 19:00 is closing time and not an appointment start.
+- **Strict Non-Rounding:** Off-grid times (e.g. 16:05) are invalid and never rounded silently. Real alternative slots are queried and offered.
+- **Capacity & Concurrency:** Default capacity = 1. Row-level `SELECT ... FOR UPDATE` locks prevent race conditions and double-booking.
+- **Pending Action Multi-Turn Flow:** Mutating actions (`create_branch_booking`, `create_home_visit`, `cancel_booking`) persist their partial state in `ConversationSession.pending_action`, collecting missing fields one by one.
+- **Explicit Confirmation Gate:** Complete appointment summaries are presented prior to mutation; transactions execute strictly after user confirmation.
+- **Cancellation & Capacity Recovery:** Cancelling a booking updates status to CANCELLED and atomically releases slot reserved capacity.
+- **Ownership Scoping:** Status checks and cancellations enforce customer and session scoping to prevent cross-session leakage.
+
+
