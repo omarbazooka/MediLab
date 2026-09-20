@@ -196,30 +196,48 @@ class GeminiProvider:
         except json.JSONDecodeError:
             pass
 
-        match = re.search(r"(\{.*\})", text, re.DOTALL)
-        if match:
-            text = match.group(1).strip()
-            try:
-                return json.loads(text)
-            except json.JSONDecodeError:
-                pass
+        # Strip line comments
+        text_no_comments = re.sub(r"//.*$", "", text, flags=re.MULTILINE)
+        try:
+            return json.loads(text_no_comments)
+        except json.JSONDecodeError:
+            pass
 
-        cleaned = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', text)
+        # Extract outer JSON object if surrounded by preamble or postscript
+        match = re.search(r"(\{.*\})", text_no_comments, re.DOTALL)
+        candidate = match.group(1).strip() if match else text_no_comments
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            pass
+
+        # Python literal evaluation (handles single quotes, booleans, and trailing commas)
+        try:
+            import ast
+
+            py_text = re.sub(r"\btrue\b", "True", candidate)
+            py_text = re.sub(r"\bfalse\b", "False", py_text)
+            py_text = re.sub(r"\bnull\b", "None", py_text)
+            val = ast.literal_eval(py_text)
+            if isinstance(val, dict):
+                return val
+        except Exception:
+            pass
+
+        # Clean unquoted and single-quoted keys and trailing commas
+        cleaned = re.sub(r"([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:", r'\1"\2":', candidate)
         cleaned = re.sub(r"([{,]\s*)'([A-Za-z_][A-Za-z0-9_]*)'\s*:", r'\1"\2":', cleaned)
         cleaned = re.sub(r",\s*([\]}])", r"\1", cleaned)
-
         try:
             return json.loads(cleaned)
         except json.JSONDecodeError:
             pass
 
+        # Also try replacing single-quoted values with double-quoted values
+        cleaned_values = re.sub(r":\s*'([^']*)'", r': "\1"', cleaned)
         try:
-            import ast
-
-            val = ast.literal_eval(text)
-            if isinstance(val, dict):
-                return val
-        except Exception:
+            return json.loads(cleaned_values)
+        except json.JSONDecodeError:
             pass
 
         return json.loads(text)

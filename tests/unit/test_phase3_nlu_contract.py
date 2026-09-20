@@ -155,13 +155,16 @@ def test_gemini_provider_parse_json_payload_robustness() -> None:
     fenced = '```json\n{"primary_intent": "TEST_PRICE"}\n```'
     assert GeminiProvider._parse_json_payload(fenced)["primary_intent"] == "TEST_PRICE"
 
-    # 2. Single-quoted keys and trailing commas
+    # 2. Single-quoted keys, single-quoted values, booleans, null, and trailing commas
     malformed = (
-        "{\n  'primary_intent': 'BOOK_BRANCH_VISIT',\n  'action_intent': 'BOOK_BRANCH_VISIT',\n}"
+        "{\n  'primary_intent': 'BOOK_BRANCH_VISIT',\n  'action_intent': 'BOOK_BRANCH_VISIT',\n"
+        "  'requires_rag': false,\n  'clarification_target': null, // comment\n}"
     )
     res = GeminiProvider._parse_json_payload(malformed)
     assert res["primary_intent"] == "BOOK_BRANCH_VISIT"
     assert res["action_intent"] == "BOOK_BRANCH_VISIT"
+    assert res["requires_rag"] is False
+    assert res["clarification_target"] is None
 
     # 3. Text preamble / postscript surrounding JSON
     surrounded = 'Here is the plan:\n{"primary_intent": "TEST_DETAILS"}\nHope this helps!'
