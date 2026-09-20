@@ -67,8 +67,10 @@ _FACT_ALIASES: dict[str, tuple[str, ...]] = {
     "cannot diagnose": (
         "cannot diagnose",
         "can't diagnose",
+        "does not diagnose",
         "do not diagnose",
         "don't diagnose",
+        "does not provide clinical diagnoses",
         "do not provide clinical diagnoses",
         "cannot provide a diagnosis",
         "unable to diagnose",

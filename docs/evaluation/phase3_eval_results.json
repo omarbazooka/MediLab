@@ -1,6 +1,6 @@
 {
-  "timestamp": "2026-09-19T22:51:37.249329+00:00",
-  "git_commit": "40a7a7215b2a",
+  "timestamp": "2026-09-20T00:26:12.398414+00:00",
+  "git_commit": "adaf003f104b",
   "mode": "DETERMINISTIC_BENCHMARK",
   "provider": "FakeLLMProvider",
   "database": "TEST_DATABASE_URL",
@@ -17,13 +17,13 @@
     "fact_grounding_pct": 100.0
   },
   "latencies_ms": {
-    "understanding_p50": 0.05310005508363247,
-    "understanding_p95": 0.2066099550575017,
-    "composition_p50": 0.0400500139221549,
-    "composition_p95": 0.11934498324990266,
-    "total_p50": 42.21735004102811,
-    "total_p95": 2247.7790449571326,
-    "total_avg": 389.14606902870304
+    "understanding_p50": 0.04680000711232424,
+    "understanding_p95": 0.12990495888516287,
+    "composition_p50": 0.03549997927621007,
+    "composition_p95": 0.04755001282319426,
+    "total_p50": 35.17970000393689,
+    "total_p95": 2595.0010000437014,
+    "total_avg": 342.989569047599
   },
   "cases": [
     {
@@ -48,9 +48,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 101.46769997663796,
-      "latency_understand_ms": 0.22469996474683285,
-      "latency_compose_ms": 0.05479995161294937,
+      "latency_total_ms": 87.30989997275174,
+      "latency_understand_ms": 0.2012000186368823,
+      "latency_compose_ms": 0.0396000687032938,
       "response_snippet": "Complete Blood Count (CBC) (Measures red blood cells, white blood cells, platelets, and hemoglobin to assess general blood health and counts.) is priced at 250."
     },
     {
@@ -75,9 +75,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 50.149799906648695,
-      "latency_understand_ms": 0.08969998452812433,
-      "latency_compose_ms": 0.03809994086623192,
+      "latency_total_ms": 61.07319996226579,
+      "latency_understand_ms": 0.07760000880807638,
+      "latency_compose_ms": 0.07599999662488699,
       "response_snippet": "تحليل Complete Blood Count (CBC): Measures red blood cells, white blood cells, platelets, and hemoglobin to assess general blood health and counts. سعره 250.00 "
     },
     {
@@ -102,8 +102,8 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 51.611099974252284,
-      "latency_understand_ms": 0.06290001329034567,
+      "latency_total_ms": 51.270400057546794,
+      "latency_understand_ms": 0.07239996921271086,
       "latency_compose_ms": 0.046600005589425564,
       "response_snippet": "تحليل Thyroid Stimulating Hormone (TSH): TSH is a blood test that measures thyroid-stimulating hormone, which is involved in regulating thyroid function. سعره 2"
     },
@@ -129,9 +129,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 48.50329994224012,
-      "latency_understand_ms": 0.07419998291879892,
-      "latency_compose_ms": 0.038400059565901756,
+      "latency_total_ms": 45.42490001767874,
+      "latency_understand_ms": 0.06889994256198406,
+      "latency_compose_ms": 0.03650004509836435,
       "response_snippet": "Vitamin D (25-Hydroxy) (Measures circulating 25-hydroxy vitamin D levels in the blood.) is priced at 650.00 EGP EGP. It requires Serum, with results ready in 48"
     },
     {
@@ -156,9 +156,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 47.96529992017895,
-      "latency_understand_ms": 0.18780003301799297,
-      "latency_compose_ms": 0.1550000160932541,
+      "latency_total_ms": 43.030699947848916,
+      "latency_understand_ms": 0.08389994036406279,
+      "latency_compose_ms": 0.0447999918833375,
       "response_snippet": "تحليل Kidney Function Tests (KFT): Measures kidney function markers including creatinine, blood urea nitrogen, and uric acid. سعره 300.00 EGP جنيه مصري، العينة "
     },
     {
@@ -183,9 +183,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 45.14190007466823,
-      "latency_understand_ms": 0.07419998291879892,
-      "latency_compose_ms": 0.06750004831701517,
+      "latency_total_ms": 35.974300000816584,
+      "latency_understand_ms": 0.06490002851933241,
+      "latency_compose_ms": 0.030199997127056122,
       "response_snippet": "Serum Ferritin (Measures ferritin levels in the blood, an indicator of the body's stored iron reserves.) is priced at 280.00 EGP EGP. It requires Serum, with re"
     },
     {
@@ -210,9 +210,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 41.07050003949553,
-      "latency_understand_ms": 0.07370009552687407,
-      "latency_compose_ms": 0.03430002834647894,
+      "latency_total_ms": 34.38510000705719,
+      "latency_understand_ms": 0.13209995813667774,
+      "latency_compose_ms": 0.03529991954565048,
       "response_snippet": "تحليل Liver Function Tests (LFT): Measures liver enzymes and proteins including ALT, AST, alkaline phosphatase, and bilirubin to assess hepatic panel values. سع"
     },
     {
@@ -237,9 +237,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 42.122200015001,
-      "latency_understand_ms": 0.045900000259280205,
-      "latency_compose_ms": 0.05319993942975998,
+      "latency_total_ms": 32.138300011865795,
+      "latency_understand_ms": 0.04309997893869877,
+      "latency_compose_ms": 0.03890006337314844,
       "response_snippet": "Package Comprehensive Health Checkup: Thorough preventive screening package covering hematology, liver, kidneys, lipids, and glucose. (1050.00 EGP). Package Dia"
     },
     {
@@ -264,9 +264,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 38.03139994852245,
-      "latency_understand_ms": 0.05579995922744274,
-      "latency_compose_ms": 0.044599990360438824,
+      "latency_total_ms": 29.91219994146377,
+      "latency_understand_ms": 0.05170004442334175,
+      "latency_compose_ms": 0.042199972085654736,
       "response_snippet": "باقة Comprehensive Health Checkup: Thorough preventive screening package covering hematology, liver, kidneys, lipids, and glucose. بسعر 1050.00 EGP جنيه وتتضمن:"
     },
     {
@@ -291,9 +291,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 34.4145999988541,
-      "latency_understand_ms": 0.04569999873638153,
-      "latency_compose_ms": 0.052600051276385784,
+      "latency_total_ms": 26.99759998358786,
+      "latency_understand_ms": 0.043899985030293465,
+      "latency_compose_ms": 0.03969995304942131,
       "response_snippet": "Our branches in Downtown, Nasr City, Maadi: Dokki Branch (+20233371234), Maadi Branch (+20223581234), Nasr City Branch (+20224011234), New Cairo Branch (+202281"
     },
     {
@@ -318,9 +318,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 42.312500067055225,
-      "latency_understand_ms": 0.0591999851167202,
-      "latency_compose_ms": 0.053699943237006664,
+      "latency_total_ms": 28.163400012999773,
+      "latency_understand_ms": 0.05159992724657059,
+      "latency_compose_ms": 0.04279997665435076,
       "response_snippet": "فروعنا المتاحة في المعادي ومدينة نصر ووسط البلد: Dokki Branch (+20233371234), Maadi Branch (+20223581234), Nasr City Branch (+20224011234), New Cairo Branch (+2"
     },
     {
@@ -345,9 +345,9 @@
       "actual_route": "rag",
       "expected_route": "rag",
       "needs_clarification": false,
-      "latency_total_ms": 2138.8871000381187,
-      "latency_understand_ms": 0.05589995998889208,
-      "latency_compose_ms": 0.03979995381087065,
+      "latency_total_ms": 570.1188000384718,
+      "latency_understand_ms": 0.056900084018707275,
+      "latency_compose_ms": 0.043899985030293465,
       "response_snippet": "Preparation & Policy instructions (fasting): Not every blood test requires fasting. Fasting should only be followed when the test-specific preparation instructi"
     },
     {
@@ -372,9 +372,9 @@
       "actual_route": "rag",
       "expected_route": "rag",
       "needs_clarification": false,
-      "latency_total_ms": 547.9908999986947,
-      "latency_understand_ms": 0.07139996159821749,
-      "latency_compose_ms": 0.04549999721348286,
+      "latency_total_ms": 2140.521000023,
+      "latency_understand_ms": 0.06580003537237644,
+      "latency_compose_ms": 0.2864000853151083,
       "response_snippet": "شروط التحضير والسياسات: صيام Not every blood test requires fasting. Fasting should only be followed when the test-specific preparation instruction  says it is r"
     },
     {
@@ -399,9 +399,9 @@
       "actual_route": "rag",
       "expected_route": "rag",
       "needs_clarification": false,
-      "latency_total_ms": 551.9087000284344,
-      "latency_understand_ms": 0.03570003900676966,
-      "latency_compose_ms": 0.1775999553501606,
+      "latency_total_ms": 1194.5488000055775,
+      "latency_understand_ms": 0.03729993477463722,
+      "latency_compose_ms": 0.04249997437000275,
       "response_snippet": "Preparation & Policy instructions (fasting): Branch appointments may be cancelled or rescheduled up to 2 hours before the scheduled appointment time  under the "
     },
     {
@@ -426,9 +426,9 @@
       "actual_route": "rag",
       "expected_route": "rag",
       "needs_clarification": false,
-      "latency_total_ms": 899.8703999677673,
-      "latency_understand_ms": 0.044100102968513966,
-      "latency_compose_ms": 0.03729993477463722,
+      "latency_total_ms": 2819.2037999397144,
+      "latency_understand_ms": 0.0377000542357564,
+      "latency_compose_ms": 0.04600000102072954,
       "response_snippet": "شروط التحضير والسياسات: صيام Home collection visits may be cancelled or rescheduled up to 4 hours before the scheduled slot under the standard  MediLab policy. "
     },
     {
@@ -453,9 +453,9 @@
       "actual_route": "combined_read",
       "expected_route": "combined_read",
       "needs_clarification": false,
-      "latency_total_ms": 3029.727700049989,
-      "latency_understand_ms": 0.07080007344484329,
-      "latency_compose_ms": 0.04430010449141264,
+      "latency_total_ms": 3069.659800035879,
+      "latency_understand_ms": 0.045900000259280205,
+      "latency_compose_ms": 0.03979995381087065,
       "response_snippet": "Thyroid Stimulating Hormone (TSH) (TSH is a blood test that measures thyroid-stimulating hormone, which is involved in regulating thyroid function.) is priced a"
     },
     {
@@ -480,9 +480,9 @@
       "actual_route": "combined_read",
       "expected_route": "combined_read",
       "needs_clarification": false,
-      "latency_total_ms": 2253.5101999528706,
-      "latency_understand_ms": 0.05870009772479534,
-      "latency_compose_ms": 0.036800047382712364,
+      "latency_total_ms": 653.7064000731334,
+      "latency_understand_ms": 0.08819997310638428,
+      "latency_compose_ms": 0.0415000831708312,
       "response_snippet": "تحليل Lipid Profile Panel: Measures total cholesterol, HDL, LDL, and triglycerides to evaluate lipid concentrations in the bloodstream. سعره 320.00 EGP جنيه مصر"
     },
     {
@@ -507,8 +507,8 @@
       "actual_route": "clarification",
       "expected_route": "clarification",
       "needs_clarification": true,
-      "latency_total_ms": 75.07230003830045,
-      "latency_understand_ms": 0.05340005736798048,
+      "latency_total_ms": 116.4477999554947,
+      "latency_understand_ms": 0.06630003917962313,
       "latency_compose_ms": 0.0,
       "response_snippet": "We offer multiple thyroid testing options (Thyroid Stimulating Hormone (TSH) (220.00 EGP), Vitality & Wellness Panel (980.00 EGP)). Did you mean the single TSH "
     },
@@ -534,8 +534,8 @@
       "actual_route": "clarification",
       "expected_route": "clarification",
       "needs_clarification": true,
-      "latency_total_ms": 67.20400007907301,
-      "latency_understand_ms": 0.053900061175227165,
+      "latency_total_ms": 56.12579989247024,
+      "latency_understand_ms": 0.058399979025125504,
       "latency_compose_ms": 0.0,
       "response_snippet": "لدينا أكثر من تحليل متاح (Fasting Blood Sugar (FBS) (90.00 EGP)). هل تقصد تحليل TSH الفردي أم باقة الحيوية الكاملة؟ 1. Fasting Blood Sugar (FBS) (90.00 EGP)"
     },
@@ -561,9 +561,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 42.7606999874115,
-      "latency_understand_ms": 0.04539999645203352,
-      "latency_compose_ms": 0.042500090785324574,
+      "latency_total_ms": 34.178400062955916,
+      "latency_understand_ms": 0.05449994932860136,
+      "latency_compose_ms": 0.03250001464039087,
       "response_snippet": "Diabetes Monitoring Package: Essential quarterly monitoring for diabetic patients including glycemic and kidney function assessment. for 680.00 EGP EGP, includi"
     },
     {
@@ -588,9 +588,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 45.33989995252341,
-      "latency_understand_ms": 0.04100007936358452,
-      "latency_compose_ms": 0.06400002166628838,
+      "latency_total_ms": 39.07729999627918,
+      "latency_understand_ms": 0.05270005203783512,
+      "latency_compose_ms": 0.03879994619637728,
       "response_snippet": "تحليل Complete Blood Count (CBC): Measures red blood cells, white blood cells, platelets, and hemoglobin to assess general blood health and counts. سعره 250.00 "
     },
     {
@@ -615,9 +615,9 @@
       "actual_route": "customer_history",
       "expected_route": "customer_history",
       "needs_clarification": false,
-      "latency_total_ms": 47.95019992161542,
-      "latency_understand_ms": 0.038899946957826614,
-      "latency_compose_ms": 0.036899931728839874,
+      "latency_total_ms": 42.39560000132769,
+      "latency_understand_ms": 0.035199918784201145,
+      "latency_compose_ms": 0.03760005347430706,
       "response_snippet": "Your most recent booking (MEDILAB-EVAL-001) is scheduled on 2026-09-20 (Status: CONFIRMED) for booked test: Complete Blood Count (CBC)."
     },
     {
@@ -642,9 +642,9 @@
       "actual_route": "customer_history",
       "expected_route": "customer_history",
       "needs_clarification": false,
-      "latency_total_ms": 40.0788999395445,
-      "latency_understand_ms": 0.4683999577537179,
-      "latency_compose_ms": 0.03739993553608656,
+      "latency_total_ms": 32.60160004720092,
+      "latency_understand_ms": 0.04770001396536827,
+      "latency_compose_ms": 0.02610008232295513,
       "response_snippet": "آخر حجز مسجل لك برقم MEDILAB-EVAL-001 بتاريخ 2026-09-20 وحالته CONFIRMED ويتضمن فحص تحليل: Complete Blood Count (CBC)."
     },
     {
@@ -669,9 +669,9 @@
       "actual_route": "customer_history",
       "expected_route": "customer_history",
       "needs_clarification": false,
-      "latency_total_ms": 28.35639996919781,
-      "latency_understand_ms": 0.03260001540184021,
-      "latency_compose_ms": 0.018600025214254856,
+      "latency_total_ms": 23.57550000306219,
+      "latency_understand_ms": 0.027699978090822697,
+      "latency_compose_ms": 0.018700025975704193,
       "response_snippet": "You are not logged in. Please identify yourself with your phone number to access your previous booking history."
     },
     {
@@ -696,9 +696,9 @@
       "actual_route": "safety",
       "expected_route": "safety",
       "needs_clarification": false,
-      "latency_total_ms": 27.326500043272972,
+      "latency_total_ms": 22.824999992735684,
       "latency_understand_ms": 0.0,
-      "latency_compose_ms": 0.019200029782950878,
+      "latency_compose_ms": 0.015600002370774746,
       "response_snippet": "MediLab provides diagnostic laboratory testing and operational guidance. We cannot diagnose conditions, prescribe medications, or interpret clinical results. Pl"
     },
     {
@@ -723,9 +723,9 @@
       "actual_route": "safety",
       "expected_route": "safety",
       "needs_clarification": false,
-      "latency_total_ms": 26.731899939477444,
+      "latency_total_ms": 26.809300063177943,
       "latency_understand_ms": 0.0,
-      "latency_compose_ms": 0.020400038920342922,
+      "latency_compose_ms": 0.026399968191981316,
       "response_snippet": "في مختبرات ميدي لاب تخصصنا هو تقديم الخدمات المخبرية والفحوصات بدقة عالية. لا يمكننا تقديم تشخيص طبي أو علاج أو وصف أدوية أو تفسير النتائج سريرياً. يرجى استشارة"
     },
     {
@@ -750,9 +750,9 @@
       "actual_route": "safety",
       "expected_route": "safety",
       "needs_clarification": false,
-      "latency_total_ms": 27.354999911040068,
+      "latency_total_ms": 22.30229997076094,
       "latency_understand_ms": 0.0,
-      "latency_compose_ms": 0.019200029782950878,
+      "latency_compose_ms": 0.01750001683831215,
       "response_snippet": "MediLab provides diagnostic laboratory testing and operational guidance. We cannot diagnose conditions, prescribe medications, or interpret clinical results. Pl"
     },
     {
@@ -777,9 +777,9 @@
       "actual_route": "safety",
       "expected_route": "safety",
       "needs_clarification": false,
-      "latency_total_ms": 26.255999924615026,
+      "latency_total_ms": 24.823099956847727,
       "latency_understand_ms": 0.0,
-      "latency_compose_ms": 0.01750001683831215,
+      "latency_compose_ms": 0.01859990879893303,
       "response_snippet": "في مختبرات ميدي لاب تخصصنا هو تقديم الخدمات المخبرية والفحوصات بدقة عالية. لا يمكننا تقديم تشخيص طبي أو علاج أو وصف أدوية أو تفسير النتائج سريرياً. يرجى استشارة"
     },
     {
@@ -804,9 +804,9 @@
       "actual_route": "safety",
       "expected_route": "safety",
       "needs_clarification": false,
-      "latency_total_ms": 27.96360000502318,
+      "latency_total_ms": 24.002599995583296,
       "latency_understand_ms": 0.0,
-      "latency_compose_ms": 0.02529995981603861,
+      "latency_compose_ms": 0.01910002902150154,
       "response_snippet": "MediLab provides diagnostic laboratory testing and operational guidance. We cannot diagnose conditions, prescribe medications, or interpret clinical results. Pl"
     },
     {
@@ -831,9 +831,9 @@
       "actual_route": "action_boundary",
       "expected_route": "action_boundary",
       "needs_clarification": false,
-      "latency_total_ms": 29.81139998883009,
-      "latency_understand_ms": 0.03879994619637728,
-      "latency_compose_ms": 0.04030007403343916,
+      "latency_total_ms": 26.06730000115931,
+      "latency_understand_ms": 0.03670004662126303,
+      "latency_compose_ms": 0.025600078515708447,
       "response_snippet": "I can assist you with test details, branch locations, and preparation guidelines. Direct appointment booking service and cancellation will be activated in our u"
     },
     {
@@ -858,9 +858,9 @@
       "actual_route": "action_boundary",
       "expected_route": "action_boundary",
       "needs_clarification": false,
-      "latency_total_ms": 28.529899893328547,
-      "latency_understand_ms": 0.040400074794888496,
-      "latency_compose_ms": 0.09139999747276306,
+      "latency_total_ms": 40.09280004538596,
+      "latency_understand_ms": 0.05270005203783512,
+      "latency_compose_ms": 0.047600013203918934,
       "response_snippet": "يمكننا مساعدتك في تفاصيل التحاليل والأسعار ومواعيد الفروع. خدمة حجز المواعيد وإلغاء الحجز قيد التفعيل حالياً وستكون متاحة في الإصدار القادم. يرجى التواصل مع خدم"
     },
     {
@@ -885,9 +885,9 @@
       "actual_route": "action_boundary",
       "expected_route": "action_boundary",
       "needs_clarification": false,
-      "latency_total_ms": 30.505399918183684,
-      "latency_understand_ms": 0.03559992182999849,
-      "latency_compose_ms": 0.01880002673715353,
+      "latency_total_ms": 29.62780010420829,
+      "latency_understand_ms": 0.0342000275850296,
+      "latency_compose_ms": 0.023000058718025684,
       "response_snippet": "I can assist you with test details, branch locations, and preparation guidelines. Direct appointment booking service and cancellation will be activated in our u"
     },
     {
@@ -912,9 +912,9 @@
       "actual_route": "general",
       "expected_route": "general",
       "needs_clarification": false,
-      "latency_total_ms": 29.586499906145036,
-      "latency_understand_ms": 0.03290001768618822,
-      "latency_compose_ms": 0.026499968953430653,
+      "latency_total_ms": 23.740399978123605,
+      "latency_understand_ms": 0.03759993705898523,
+      "latency_compose_ms": 0.017200014553964138,
       "response_snippet": "Hello! Welcome to MediLab. How can I help you with our laboratory tests, packages, and branches today?"
     },
     {
@@ -939,9 +939,9 @@
       "actual_route": "general",
       "expected_route": "general",
       "needs_clarification": false,
-      "latency_total_ms": 33.775600022636354,
-      "latency_understand_ms": 0.05280005279928446,
-      "latency_compose_ms": 0.04780001472681761,
+      "latency_total_ms": 24.03589989989996,
+      "latency_understand_ms": 0.03999995533376932,
+      "latency_compose_ms": 0.02129992935806513,
       "response_snippet": "أهلاً بك في معمل ميدي لاب! يسعدنا مساعدتك اليوم في الاستفسار عن التحاليل الطبية والباقات ومواعيد فروعنا."
     },
     {
@@ -966,9 +966,9 @@
       "actual_route": "general",
       "expected_route": "general",
       "needs_clarification": false,
-      "latency_total_ms": 28.394199907779694,
-      "latency_understand_ms": 0.027700094506144524,
-      "latency_compose_ms": 0.08410005830228329,
+      "latency_total_ms": 26.08520002104342,
+      "latency_understand_ms": 0.040599959902465343,
+      "latency_compose_ms": 0.027099973522126675,
       "response_snippet": "Hello! Welcome to MediLab. How can I help you with our laboratory tests, packages, and branches today?"
     },
     {
@@ -993,9 +993,9 @@
       "actual_route": "general",
       "expected_route": "general",
       "needs_clarification": false,
-      "latency_total_ms": 29.06729991082102,
-      "latency_understand_ms": 0.08130003698170185,
-      "latency_compose_ms": 0.02410006709396839,
+      "latency_total_ms": 26.314000017009676,
+      "latency_understand_ms": 0.030700000934302807,
+      "latency_compose_ms": 0.026700086891651154,
       "response_snippet": "Hello! Welcome to MediLab. How can I help you with our laboratory tests, packages, and branches today?"
     },
     {
@@ -1020,9 +1020,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 46.30789998918772,
-      "latency_understand_ms": 0.047600013203918934,
-      "latency_compose_ms": 0.03659992944449186,
+      "latency_total_ms": 36.405199905857444,
+      "latency_understand_ms": 0.041199964471161366,
+      "latency_compose_ms": 0.039800070226192474,
       "response_snippet": "تحليل Complete Blood Count (CBC): Measures red blood cells, white blood cells, platelets, and hemoglobin to assess general blood health and counts. سعره 250.00 "
     },
     {
@@ -1047,9 +1047,9 @@
       "actual_route": "general",
       "expected_route": "general",
       "needs_clarification": false,
-      "latency_total_ms": 31.283200019970536,
-      "latency_understand_ms": 0.03029999788850546,
-      "latency_compose_ms": 0.040800077840685844,
+      "latency_total_ms": 25.966300047002733,
+      "latency_understand_ms": 0.027999980375170708,
+      "latency_compose_ms": 0.030199997127056122,
       "response_snippet": "Welcome to MediLab. As a specialized clinical diagnostic medical laboratory, we cannot help with external services outside laboratory testing."
     },
     {
@@ -1074,9 +1074,9 @@
       "actual_route": "general",
       "expected_route": "general",
       "needs_clarification": false,
-      "latency_total_ms": 28.674099943600595,
-      "latency_understand_ms": 0.20759995095431805,
-      "latency_compose_ms": 0.03350002225488424,
+      "latency_total_ms": 28.756899992004037,
+      "latency_understand_ms": 0.029699993319809437,
+      "latency_compose_ms": 0.03570003900676966,
       "response_snippet": "أهلاً بك في معمل ميدي لاب للتحاليل الطبية. نعتذر، فنحن معمل تحاليل طبية ولا يمكننا تقديم خدمات خارج نطاق الفحوصات المخبرية."
     },
     {
@@ -1101,9 +1101,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 40.4285000404343,
-      "latency_understand_ms": 0.05619996227324009,
-      "latency_compose_ms": 0.12019998393952847,
+      "latency_total_ms": 69.08539996948093,
+      "latency_understand_ms": 0.23070001043379307,
+      "latency_compose_ms": 0.03809994086623192,
       "response_snippet": "Glycated Hemoglobin (HbA1c) (Measures average blood glucose concentration over the preceding 2 to 3 months.) is priced at 200.00 EGP EGP. It requires Whole Bloo"
     },
     {
@@ -1128,9 +1128,9 @@
       "actual_route": "rag",
       "expected_route": "rag",
       "needs_clarification": false,
-      "latency_total_ms": 5470.770800020546,
-      "latency_understand_ms": 0.12039998546242714,
-      "latency_compose_ms": 0.06969994865357876,
+      "latency_total_ms": 2618.921000044793,
+      "latency_understand_ms": 0.06799993570894003,
+      "latency_compose_ms": 0.03469991497695446,
       "response_snippet": "شروط التحضير والسياسات: صيام Not every blood test requires fasting. Fasting should only be followed when the test-specific preparation instruction  says it is r"
     },
     {
@@ -1155,9 +1155,9 @@
       "actual_route": "structured_data",
       "expected_route": "structured_data",
       "needs_clarification": false,
-      "latency_total_ms": 69.91940003354102,
-      "latency_understand_ms": 0.06660004146397114,
-      "latency_compose_ms": 0.10309997014701366,
+      "latency_total_ms": 41.8608000036329,
+      "latency_understand_ms": 0.07049995474517345,
+      "latency_compose_ms": 0.029799994081258774,
       "response_snippet": "Lipid Profile Panel (Measures total cholesterol, HDL, LDL, and triglycerides to evaluate lipid concentrations in the bloodstream.) is priced at 320.00 EGP EGP. "
     }
   ]

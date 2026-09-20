@@ -71,7 +71,9 @@ def test_understand_request_keeps_nonempty_invalid_reference_object_strict(monke
     assert plan.clarification_target == "request_meaning"
 
 
-def test_safety_prompt_distinguishes_catalog_search_from_clinical_recommendation(monkeypatch) -> None:
+def test_safety_prompt_distinguishes_catalog_search_from_clinical_recommendation(
+    monkeypatch,
+) -> None:
     provider = GeminiProvider(api_key="test-key")
     captured: dict[str, str] = {}
 
