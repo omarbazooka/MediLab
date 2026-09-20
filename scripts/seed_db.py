@@ -48,12 +48,14 @@ def seed_categories() -> dict[str, TestCategory]:
 
 def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
     """Seed diagnostic laboratory tests idempotently."""
+    from app.services.catalog_sync import AUDITED_TEST_DESCRIPTIONS
+
     tests_data = [
         {
             "code": "CBC",
             "name": "Complete Blood Count (CBC)",
             "category_slug": "hematology",
-            "short_description": "Measures red cells, white cells, platelets, and hemoglobin to assess general blood health.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["CBC"],
             "sample_type": "Whole Blood (EDTA)",
             "price": Decimal("250.00"),
             "result_turnaround_text": "Same Day (4 hours)",
@@ -63,7 +65,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "FERRITIN",
             "name": "Serum Ferritin",
             "category_slug": "hematology",
-            "short_description": "Assesses iron storage levels in the body to detect anemia or iron overload.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["FERRITIN"],
             "sample_type": "Serum",
             "price": Decimal("280.00"),
             "result_turnaround_text": "24 Hours",
@@ -73,7 +75,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "LIPID",
             "name": "Lipid Profile Panel",
             "category_slug": "clinical-chemistry",
-            "short_description": "Measures total cholesterol, HDL, LDL, and triglycerides to evaluate cardiovascular risk.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["LIPID"],
             "sample_type": "Serum (10-12 hr fasting)",
             "price": Decimal("320.00"),
             "result_turnaround_text": "Same Day (4 hours)",
@@ -83,7 +85,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "LFT",
             "name": "Liver Function Tests (LFT)",
             "category_slug": "clinical-chemistry",
-            "short_description": "Evaluates hepatic health measuring ALT, AST, alkaline phosphatase, and bilirubin.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["LFT"],
             "sample_type": "Serum",
             "price": Decimal("380.00"),
             "result_turnaround_text": "Same Day (5 hours)",
@@ -93,7 +95,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "KFT",
             "name": "Kidney Function Tests (KFT)",
             "category_slug": "clinical-chemistry",
-            "short_description": "Evaluates renal filtration measuring creatinine, blood urea nitrogen, and uric acid.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["KFT"],
             "sample_type": "Serum",
             "price": Decimal("300.00"),
             "result_turnaround_text": "Same Day (4 hours)",
@@ -103,7 +105,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "TSH",
             "name": "Thyroid Stimulating Hormone (TSH)",
             "category_slug": "endocrinology-hormones",
-            "short_description": "Screens for thyroid gland disorders including hypothyroidism and hyperthyroidism.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["TSH"],
             "sample_type": "Serum",
             "price": Decimal("220.00"),
             "result_turnaround_text": "24 Hours",
@@ -113,7 +115,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "VITD",
             "name": "Vitamin D (25-Hydroxy)",
             "category_slug": "endocrinology-hormones",
-            "short_description": "Measures circulating vitamin D to assess bone density, immunity, and deficiency.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["VITD"],
             "sample_type": "Serum",
             "price": Decimal("650.00"),
             "result_turnaround_text": "48 Hours",
@@ -123,7 +125,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "HBA1C",
             "name": "Glycated Hemoglobin (HbA1c)",
             "category_slug": "diabetes-care",
-            "short_description": "Measures average blood glucose concentration over the preceding 2 to 3 months.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["HBA1C"],
             "sample_type": "Whole Blood (EDTA)",
             "price": Decimal("200.00"),
             "result_turnaround_text": "Same Day (3 hours)",
@@ -133,7 +135,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "FBS",
             "name": "Fasting Blood Sugar (FBS)",
             "category_slug": "diabetes-care",
-            "short_description": "Determines blood glucose level following an overnight 8-hour fast.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["FBS"],
             "sample_type": "Fluoride Plasma",
             "price": Decimal("90.00"),
             "result_turnaround_text": "2 Hours",
@@ -143,7 +145,7 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             "code": "URINE",
             "name": "Routine Urine Analysis",
             "category_slug": "general-wellness",
-            "short_description": "Microscopic and chemical examination of urine to screen for infections and renal issues.",
+            "short_description": AUDITED_TEST_DESCRIPTIONS["URINE"],
             "sample_type": "Clean Catch Urine",
             "price": Decimal("80.00"),
             "result_turnaround_text": "2 Hours",
@@ -180,6 +182,11 @@ def seed_lab_tests(categories: dict[str, TestCategory]) -> dict[str, LabTest]:
             )
             db.session.add(test)
             db.session.flush()
+        else:
+            # Sync description if it differs from audited non-clinical explanation
+            if test.short_description != item["short_description"]:
+                test.short_description = item["short_description"]
+                db.session.flush()
         seeded[item["code"]] = test
     return seeded
 
